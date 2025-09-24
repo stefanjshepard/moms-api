@@ -17,8 +17,8 @@ describe('Appointment Routes', () => {
     clientFirstName: 'John',
     clientLastName: 'Doe',
     email: 'john.doe@example.com',
-    phone: '123-456-7890',
-    date: new Date('2024-04-20T10:00:00Z'),
+    phone: '1234567890',
+    date: new Date(Date.now() + 25 * 60 * 60 * 1000), // 25 hours from now
   };
 
   let createdServiceId: string;
@@ -66,10 +66,10 @@ describe('Appointment Routes', () => {
         .post('/api/appointments')
         .send({
           ...testAppointment,
-          serviceId: 'non-existent-service-id',
-        })
-        .expect(404);
+          serviceId: '00000000-0000-0000-0000-000000000000', // Valid UUID format but non-existent
+        });
 
+      expect(response.status).toBe(404);
       expect(response.body).toHaveProperty('error');
     });
   });
@@ -136,8 +136,8 @@ describe('Appointment Routes', () => {
         clientFirstName: 'Jane',
         clientLastName: 'Smith',
         email: 'jane.smith@example.com',
-        phone: '987-654-3210',
-        date: new Date('2024-04-21T14:00:00Z'),
+        phone: '9876543210',
+        date: new Date(Date.now() + 26 * 60 * 60 * 1000), // 26 hours from now
       };
 
       const response = await request(app)
@@ -163,7 +163,7 @@ describe('Appointment Routes', () => {
       const response = await request(app)
         .put(`/api/appointments/${createdAppointment.id}/confirm`)
         .send({
-          paymentId: 'test_payment_id',
+          appointmentId: createdAppointment.id,
           paymentStatus: 'completed',
         })
         .expect(200);

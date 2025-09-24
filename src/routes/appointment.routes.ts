@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { validateAppointment, validateAppointmentConfirmation } from '../validations/appointment.validation';
+import { validateAppointment, validateAppointmentUpdate, validateAppointmentConfirmation } from '../validations/appointment.validation';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -69,7 +69,7 @@ appointmentRouter.get('/:id', async (req: Request, res: Response): Promise<void>
 });
 
 // Update an appointment
-appointmentRouter.put('/:id', validateAppointment, async (req: Request, res: Response): Promise<void> => {
+appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, res: Response): Promise<void> => {
   try {
     const { clientFirstName, clientLastName, email, phone, date } = req.body;
     const appointment = await prisma.appointment.update({
