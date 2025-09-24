@@ -21,7 +21,7 @@ blogPostRouter.get('/', async (_req: Request, res: Response): Promise<void> => {
 // Get published blog post by ID
 blogPostRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const blogPost = await prisma.blogPost.findUnique({
+    const blogPost = await prisma.blogPost.findFirst({
       where: { 
         id: req.params.id,
         isPublished: true
