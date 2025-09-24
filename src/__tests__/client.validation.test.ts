@@ -1,8 +1,12 @@
 import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Test Setup', () => {
   it('should clean up the database before each test', async () => {
@@ -22,20 +26,21 @@ describe('Client Validation', () => {
     email: 'john@example.com'
   };
 
-  let clientId: string;
+  let createdClientId: string;
 
   beforeEach(async () => {
     // Create a client first
     const client = await prisma.client.create({
       data: validData
     });
-    clientId = client.id;
+    createdClientId = client.id;
   });
 
-  describe('PUT /api/client', () => {
+  describe('PUT /api/admin/clients/:id', () => {
     it('should accept valid client data', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send(validData)
         .expect(200);
 
@@ -46,7 +51,8 @@ describe('Client Validation', () => {
 
     it('should reject invalid name', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, name: 'J' })
         .expect(400);
 
@@ -55,7 +61,8 @@ describe('Client Validation', () => {
 
     it('should reject invalid aboutMe', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, aboutMe: 'Too short' })
         .expect(400);
 
@@ -64,7 +71,8 @@ describe('Client Validation', () => {
 
     it('should reject invalid email', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, email: 'invalid-email' })
         .expect(400);
 
@@ -73,7 +81,8 @@ describe('Client Validation', () => {
 
     it('should reject missing required fields', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ name: 'John Doe' })
         .expect(400);
 
@@ -83,7 +92,8 @@ describe('Client Validation', () => {
 
     it('should reject empty strings', async () => {
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({
           name: '',
           aboutMe: '',
@@ -109,7 +119,8 @@ describe('Client Validation', () => {
 
       for (const email of invalidEmails) {
         const response = await request(app)
-          .put('/api/client')
+          .put(`/api/admin/clients/${createdClientId}`)
+          .set('x-admin-key', ADMIN_KEY)
           .send({ ...validData, email })
           .expect(400);
 
@@ -129,12 +140,48 @@ describe('Client Validation', () => {
 
       for (const email of validEmails) {
         const response = await request(app)
-          .put('/api/client')
+          .put(`/api/admin/clients/${createdClientId}`)
+          .set('x-admin-key', ADMIN_KEY)
           .send({ ...validData, email })
           .expect(200);
 
         expect(response.body).toHaveProperty('email', email);
       }
+    });
+
+    it('should reject unauthorized requests', async () => {
+      const response = await request(app)
+        .put(`/api/admin/clients/${createdClientId}`)
+        .send(validData)
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized');
+    });
+  });
+
+  describe('POST /api/admin/clients', () => {
+    it('should validate new client creation', async () => {
+      const response = await request(app)
+        .post('/api/admin/clients')
+        .set('x-admin-key', ADMIN_KEY)
+        .send(validData)
+        .expect(201);
+
+      expect(response.body).toHaveProperty('name', validData.name);
+      expect(response.body).toHaveProperty('aboutMe', validData.aboutMe);
+      expect(response.body).toHaveProperty('email', validData.email);
+    });
+
+    it('should reject invalid data for new client', async () => {
+      const response = await request(app)
+        .post('/api/admin/clients')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({ name: 'J' })
+        .expect(400);
+
+      expect(response.body.error).toContain('Name must be at least 2 characters long');
+      expect(response.body.error).toContain('About Me is required');
+      expect(response.body.error).toContain('Email is required');
     });
   });
 
