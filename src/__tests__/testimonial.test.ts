@@ -1,7 +1,9 @@
 import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
+import { resetAllLimiters } from '../middleware/rateLimit';
 import dotenv from 'dotenv';
+import '../__tests__/setup';
 
 dotenv.config();
 
@@ -26,6 +28,9 @@ describe('Testimonial Routes', () => {
 
   beforeEach(async () => {
     try {
+      // Reset rate limiters before each test
+      await resetAllLimiters();
+      
       await prisma.testimonial.deleteMany();
       await prisma.client.deleteMany();
 

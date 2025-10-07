@@ -1,7 +1,9 @@
 import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
+import { resetAllLimiters } from '../middleware/rateLimit';
 import dotenv from 'dotenv';
+import '../__tests__/setup';
 
 dotenv.config();
 
@@ -29,6 +31,9 @@ describe('Client Validation', () => {
   let createdClientId: string;
 
   beforeEach(async () => {
+    // Reset rate limiters before each test
+    await resetAllLimiters();
+    
     // Create a client first
     const client = await prisma.client.create({
       data: validData
