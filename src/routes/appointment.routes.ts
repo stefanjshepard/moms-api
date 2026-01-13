@@ -1,6 +1,13 @@
 import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { validateAppointment, validateAppointmentUpdate, validateAppointmentConfirmation } from '../validations/appointment.validation';
+import { sendEmail } from '../services/email.service';
+import {
+  appointmentConfirmationTemplate,
+  appointmentRescheduleTemplate,
+  appointmentCancellationTemplate,
+  appointmentConfirmedTemplate,
+} from '../services/email.templates';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -31,6 +38,21 @@ appointmentRouter.post('/', validateAppointment, async (req: Request, res: Respo
         states: 'pending'
       }
     });
+
+    // Send confirmation email to customer (non-blocking)
+    const emailHtml = appointmentConfirmationTemplate({
+      clientFirstName,
+      clientLastName,
+      email,
+      date: new Date(date),
+      serviceTitle: service.title,
+      serviceDescription: service.description,
+      appointmentId: appointment.id,
+    });
+    sendEmail(email, 'Appointment Confirmation', emailHtml).catch((err) => {
+      console.error('Failed to send appointment confirmation email:', err);
+    });
+
     res.status(201).json(appointment);
   } catch (error) {
     console.error(error);
@@ -71,7 +93,22 @@ appointmentRouter.get('/:id', async (req: Request, res: Response): Promise<void>
 // Update an appointment
 appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, res: Response): Promise<void> => {
   try {
+    // Get existing appointment to check if date changed
+    const existingAppointment = await prisma.appointment.findUnique({
+      where: { id: req.params.id },
+      include: { service: true }
+    });
+
+    if (!existingAppointment) {
+      res.status(404).json({ error: 'Appointment not found' });
+      return;
+    }
+
     const { clientFirstName, clientLastName, email, phone, date } = req.body;
+    const oldDate = existingAppointment.date;
+    const newDate = date ? new Date(date) : undefined;
+    const dateChanged = newDate && newDate.getTime() !== oldDate.getTime();
+
     const appointment = await prisma.appointment.update({
       where: { id: req.params.id },
       data: {
@@ -79,9 +116,28 @@ appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, re
         clientLastName,
         email,
         phone,
-        date: date ? new Date(date) : undefined
-      }
+        date: newDate
+      },
+      include: { service: true }
     });
+
+    // Send reschedule email if date changed (non-blocking)
+    if (dateChanged && appointment.service) {
+      const emailHtml = appointmentRescheduleTemplate({
+        clientFirstName: appointment.clientFirstName,
+        clientLastName: appointment.clientLastName,
+        email: appointment.email,
+        date: appointment.date,
+        oldDate: oldDate,
+        serviceTitle: appointment.service.title,
+        serviceDescription: appointment.service.description,
+        appointmentId: appointment.id,
+      });
+      sendEmail(appointment.email, 'Appointment Rescheduled', emailHtml).catch((err) => {
+        console.error('Failed to send reschedule email:', err);
+      });
+    }
+
     res.json(appointment);
   } catch (error) {
     console.error(error);
@@ -103,8 +159,26 @@ appointmentRouter.put('/:id/confirm', validateAppointmentConfirmation, async (re
       where: { id: req.params.id },
       data: {
         states: 'confirmed'
-      }
+      },
+      include: { service: true }
     });
+
+    // Send confirmation email to customer (non-blocking)
+    if (appointment.service) {
+      const emailHtml = appointmentConfirmedTemplate({
+        clientFirstName: appointment.clientFirstName,
+        clientLastName: appointment.clientLastName,
+        email: appointment.email,
+        date: appointment.date,
+        serviceTitle: appointment.service.title,
+        serviceDescription: appointment.service.description,
+        appointmentId: appointment.id,
+      });
+      sendEmail(appointment.email, 'Appointment Confirmed!', emailHtml).catch((err) => {
+        console.error('Failed to send appointment confirmed email:', err);
+      });
+    }
+
     res.json(appointment);
   } catch (error) {
     console.error(error);
@@ -115,9 +189,37 @@ appointmentRouter.put('/:id/confirm', validateAppointmentConfirmation, async (re
 // Delete an appointment
 appointmentRouter.delete('/:id', async (req: Request, res: Response) => {
   try {
+    // Get appointment details before deleting (for email)
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: req.params.id },
+      include: { service: true }
+    });
+
+    if (!appointment) {
+      res.status(404).json({ error: 'Appointment not found' });
+      return;
+    }
+
     await prisma.appointment.delete({
       where: { id: req.params.id }
     });
+
+    // Send cancellation email to customer (non-blocking)
+    if (appointment.service) {
+      const emailHtml = appointmentCancellationTemplate({
+        clientFirstName: appointment.clientFirstName,
+        clientLastName: appointment.clientLastName,
+        email: appointment.email,
+        date: appointment.date,
+        serviceTitle: appointment.service.title,
+        serviceDescription: appointment.service.description,
+        appointmentId: appointment.id,
+      });
+      sendEmail(appointment.email, 'Appointment Cancelled', emailHtml).catch((err) => {
+        console.error('Failed to send cancellation email:', err);
+      });
+    }
+
     res.status(204).send();
   } catch (error) {
     console.error(error);
