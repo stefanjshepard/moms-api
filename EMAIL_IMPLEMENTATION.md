@@ -22,25 +22,49 @@ Add these to your `.env` file:
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
+SMTP_USER=your-business-email@gmail.com
+SMTP_PASS=your-16-character-app-password
 
 # Email Display Settings
-FROM_EMAIL=your-email@gmail.com
+FROM_EMAIL=your-business-email@gmail.com
 FROM_NAME=Your Business Name
 
 # Business Owner Email (for contact request notifications)
 # If not set, will use the first client's email from the database
-BUSINESS_OWNER_EMAIL=owner@example.com
+BUSINESS_OWNER_EMAIL=your-business-email@gmail.com
 ```
 
 ### Gmail Setup
 
-If using Gmail, you'll need to:
+**IMPORTANT: For Gmail, you need an "App Password" - NOT your regular Gmail password!**
 
-1. Enable 2-factor authentication on your Google account
-2. Generate an "App Password" at: https://myaccount.google.com/apppasswords
-3. Use the app password (not your regular password) for `SMTP_PASS`
+For Gmail, you'll typically use the **same email address** for all three:
+
+- `SMTP_USER` - The Gmail account that sends emails (authenticates with SMTP)
+- `FROM_EMAIL` - The "from" address shown in emails (must match `SMTP_USER` - Gmail doesn't allow spoofing)
+- `BUSINESS_OWNER_EMAIL` - The email address that receives contact request notifications (usually the same)
+
+**Setup Steps:**
+
+1. Use your business Gmail account (e.g., `yourbusiness@gmail.com`)
+2. Enable 2-factor authentication on your Google account (required for app passwords)
+3. Generate an "App Password":
+   - Go to: https://myaccount.google.com/apppasswords
+   - Select "Mail" and "Other (Custom name)" - name it something like "Website API"
+   - Google will generate a 16-character password (looks like: `abcd efgh ijkl mnop`)
+   - **Copy this app password** (you won't see it again!)
+4. Use this app password (remove spaces) for `SMTP_PASS` - **NOT your regular Gmail password**
+
+**Example `.env` configuration:**
+
+```env
+SMTP_USER=business@gmail.com
+SMTP_PASS=abcdefghijklmnop
+FROM_EMAIL=business@gmail.com
+BUSINESS_OWNER_EMAIL=business@gmail.com
+```
+
+**Note:** All three can be the same email address for simplicity. `BUSINESS_OWNER_EMAIL` could theoretically be different if you want notifications sent to a different inbox, but typically you'll want them all the same.
 
 ### Other Email Providers
 
