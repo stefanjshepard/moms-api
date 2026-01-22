@@ -1,5 +1,22 @@
 // Email templates for different scenarios
 
+// HTML escape function to prevent XSS attacks
+const escapeHtml = (text: string): string => {
+  const map: { [key: string]: string } = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  };
+  return text.replace(/[&<>"']/g, (char) => map[char]);
+};
+
+// Escape HTML and preserve newlines as <br> tags
+const escapeHtmlWithLineBreaks = (text: string): string => {
+  return escapeHtml(text).replace(/\n/g, '<br>');
+};
+
 interface AppointmentData {
   clientFirstName: string;
   clientLastName: string;
@@ -48,11 +65,11 @@ export const appointmentConfirmationTemplate = (data: AppointmentData): string =
           <h1>Appointment Confirmation</h1>
         </div>
         <div class="content">
-          <p>Hi ${data.clientFirstName},</p>
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
           <p>Thank you for booking an appointment with us! Your appointment has been successfully scheduled.</p>
           <div class="details">
             <h3>Appointment Details:</h3>
-            <p><strong>Service:</strong> ${data.serviceTitle}</p>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
             <p><strong>Status:</strong> Pending Confirmation</p>
           </div>
@@ -111,11 +128,11 @@ export const appointmentRescheduleTemplate = (data: AppointmentData): string => 
           <h1>Appointment Rescheduled</h1>
         </div>
         <div class="content">
-          <p>Hi ${data.clientFirstName},</p>
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
           <p>Your appointment has been rescheduled. Please see the updated details below.</p>
           <div class="details">
             <h3>Updated Appointment Details:</h3>
-            <p><strong>Service:</strong> ${data.serviceTitle}</p>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             ${formattedOldDate ? `<p><strong>Previous Date:</strong> ${formattedOldDate}</p>` : ''}
             <p><strong>New Date & Time:</strong> ${formattedNewDate}</p>
           </div>
@@ -162,11 +179,11 @@ export const appointmentCancellationTemplate = (data: AppointmentData): string =
           <h1>Appointment Cancelled</h1>
         </div>
         <div class="content">
-          <p>Hi ${data.clientFirstName},</p>
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
           <p>Your appointment has been cancelled as requested.</p>
           <div class="details">
             <h3>Cancelled Appointment Details:</h3>
-            <p><strong>Service:</strong> ${data.serviceTitle}</p>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
           </div>
           <p>If you would like to schedule a new appointment, please feel free to book through our website.</p>
@@ -212,11 +229,11 @@ export const appointmentConfirmedTemplate = (data: AppointmentData): string => {
           <h1>Appointment Confirmed!</h1>
         </div>
         <div class="content">
-          <p>Hi ${data.clientFirstName},</p>
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
           <p>Great news! Your appointment has been confirmed.</p>
           <div class="details">
             <h3>Confirmed Appointment Details:</h3>
-            <p><strong>Service:</strong> ${data.serviceTitle}</p>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
             <p><strong>Status:</strong> Confirmed</p>
           </div>
@@ -256,10 +273,10 @@ export const contactRequestNotificationTemplate = (data: ContactRequestData): st
           <p>You have received a new contact request from your website.</p>
           <div class="details">
             <h3>Contact Details:</h3>
-            <p><strong>Name:</strong> ${data.name}</p>
-            <p><strong>Email:</strong> ${data.email}</p>
+            <p><strong>Name:</strong> ${escapeHtml(data.name)}</p>
+            <p><strong>Email:</strong> ${escapeHtml(data.email)}</p>
             <p><strong>Message:</strong></p>
-            <p>${data.message.replace(/\n/g, '<br>')}</p>
+            <p>${escapeHtmlWithLineBreaks(data.message)}</p>
           </div>
           <p>Please respond to this inquiry at your earliest convenience.</p>
         </div>

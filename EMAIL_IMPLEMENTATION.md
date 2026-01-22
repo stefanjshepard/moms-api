@@ -102,7 +102,41 @@ All email sending is **non-blocking** - if an email fails to send, it won't brea
 
 ## Testing
 
-To test the email service:
+### Automated Testing with Ethereal.email
+
+The email service uses **Ethereal.email** for automated testing. Ethereal is a fake SMTP service that captures emails during testing without actually sending them.
+
+**Features:**
+- Automatically creates test accounts when `NODE_ENV=test`
+- Provides preview URLs for each sent email (logged to console)
+- No real emails are sent during test execution
+- Perfect for CI/CD pipelines
+
+**Running Email Tests:**
+
+```bash
+npm test -- email.ethereal.test.ts
+```
+
+The test suite (`src/__tests__/email.ethereal.test.ts`) covers:
+- Email service core functionality
+- All email templates (appointment and contact)
+- XSS prevention (HTML escaping)
+- Error handling
+- Email validation
+
+**Viewing Test Emails:**
+
+When tests run, you'll see preview URLs in the console output like:
+```
+Preview URL: https://ethereal.email/message/...
+```
+
+You can open these URLs in your browser to see the rendered emails exactly as they would appear to recipients.
+
+### Manual Testing
+
+To test the email service manually:
 
 1. Set up your SMTP credentials in `.env`
 2. Verify email configuration (you can add this to your startup code):
@@ -115,6 +149,8 @@ To test the email service:
    ```
 
 3. Test endpoints:
+   - `POST /api/admin/email/verify` - Send a test email (requires admin auth)
+   - `GET /api/admin/email/config/verify` - Verify SMTP configuration
    - `POST /api/contact` - Submit a contact form
    - `POST /api/appointments` - Create an appointment
    - `PUT /api/appointments/:id` - Update/reschedule an appointment
