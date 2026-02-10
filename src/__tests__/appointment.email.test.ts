@@ -98,6 +98,39 @@ describe('Appointment Email Integration', () => {
       // Appointment should still be created
       expect(response.body.id).toBeDefined();
     });
+
+    it('should send notification to business owner with customer contact info', async () => {
+      const originalOwnerEmail = process.env.BUSINESS_OWNER_EMAIL;
+      process.env.BUSINESS_OWNER_EMAIL = 'owner@example.com';
+
+      await request(app)
+        .post('/api/appointments')
+        .send({
+          ...testAppointment,
+          serviceId: createdServiceId,
+        })
+        .expect(201);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Two emails: one to customer (confirmation), one to owner (notification)
+      expect(mockSendEmail).toHaveBeenCalledTimes(2);
+      const ownerCall = mockSendEmail.mock.calls.find(
+        (call) => call[0] === 'owner@example.com'
+      );
+      expect(ownerCall).toBeDefined();
+      expect(ownerCall![1]).toContain('New appointment');
+      expect(ownerCall![1]).toContain(testAppointment.clientFirstName);
+      expect(ownerCall![1]).toContain(testAppointment.clientLastName);
+      const ownerHtml = ownerCall![2] as string;
+      expect(ownerHtml).toContain(testAppointment.clientFirstName);
+      expect(ownerHtml).toContain(testAppointment.email);
+      expect(ownerHtml).toContain(testAppointment.phone);
+      expect(ownerHtml).toContain('Customer contact information');
+      expect(ownerHtml).toContain(testService.title);
+
+      process.env.BUSINESS_OWNER_EMAIL = originalOwnerEmail;
+    });
   });
 
   describe('PUT /api/appointments/:id - Reschedule Email', () => {
@@ -129,6 +162,39 @@ describe('Appointment Email Integration', () => {
         'Appointment Rescheduled',
         expect.stringContaining('Appointment Rescheduled')
       );
+    });
+
+    it('should send reschedule notification to business owner when date is changed', async () => {
+      const originalOwnerEmail = process.env.BUSINESS_OWNER_EMAIL;
+      process.env.BUSINESS_OWNER_EMAIL = 'owner@example.com';
+
+      const appointment = await prisma.appointment.create({
+        data: {
+          ...testAppointment,
+          date: new Date(testAppointment.date),
+          serviceId: createdServiceId,
+        },
+      });
+
+      const newDate = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      await request(app)
+        .put(`/api/appointments/${appointment.id}`)
+        .send({ date: newDate })
+        .expect(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Two emails: customer reschedule + owner notification
+      const ownerCall = mockSendEmail.mock.calls.find((call) => call[0] === 'owner@example.com');
+      expect(ownerCall).toBeDefined();
+      expect(ownerCall![1]).toContain('Appointment rescheduled');
+      const ownerHtml = ownerCall![2] as string;
+      expect(ownerHtml).toContain('Appointment Rescheduled');
+      expect(ownerHtml).toContain(testAppointment.clientFirstName);
+      expect(ownerHtml).toContain(testAppointment.email);
+      expect(ownerHtml).toContain('Customer contact information');
+
+      process.env.BUSINESS_OWNER_EMAIL = originalOwnerEmail;
     });
 
     it('should not send reschedule email if date is unchanged', async () => {
@@ -291,6 +357,37 @@ describe('Appointment Email Integration', () => {
       expect(emailHtml).toContain(testAppointment.clientFirstName);
       expect(emailHtml).toContain(testService.title);
       expect(emailHtml).toContain('Cancelled Appointment Details');
+    });
+
+    it('should send cancellation notification to business owner when appointment is deleted', async () => {
+      const originalOwnerEmail = process.env.BUSINESS_OWNER_EMAIL;
+      process.env.BUSINESS_OWNER_EMAIL = 'owner@example.com';
+
+      const appointment = await prisma.appointment.create({
+        data: {
+          ...testAppointment,
+          date: new Date(testAppointment.date),
+          serviceId: createdServiceId,
+        },
+      });
+
+      await request(app)
+        .delete(`/api/appointments/${appointment.id}`)
+        .expect(204);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Two emails: customer cancellation + owner notification
+      const ownerCall = mockSendEmail.mock.calls.find((call) => call[0] === 'owner@example.com');
+      expect(ownerCall).toBeDefined();
+      expect(ownerCall![1]).toContain('Appointment cancelled');
+      const ownerHtml = ownerCall![2] as string;
+      expect(ownerHtml).toContain('Appointment Cancelled');
+      expect(ownerHtml).toContain(testAppointment.clientFirstName);
+      expect(ownerHtml).toContain(testAppointment.email);
+      expect(ownerHtml).toContain('Customer contact information');
+
+      process.env.BUSINESS_OWNER_EMAIL = originalOwnerEmail;
     });
 
     it('should not fail if email sending fails during deletion', async () => {
