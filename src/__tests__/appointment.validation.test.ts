@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
 import { appointmentSchema, appointmentConfirmationSchema } from '../validations/appointment.validation';
+import { getValidMstBookingDate } from './utils/scheduling';
 
 const prisma = new PrismaClient();
 
@@ -22,7 +23,7 @@ describe('Appointment Validation', () => {
     clientLastName: 'Doe',
     email: 'john.doe@example.com',
     phone: '+1234567890',
-    date: new Date(Date.now() + 25 * 60 * 60 * 1000), // 25 hours from now
+    date: getValidMstBookingDate(),
     serviceId: '123e4567-e89b-12d3-a456-426614174000', // Valid UUID format
     states: 'pending'
   };
@@ -116,7 +117,7 @@ describe('Appointment Validation', () => {
         .send({ 
           ...validData, 
           serviceId,
-          date: new Date(Date.now() + 12 * 60 * 60 * 1000) // 12 hours from now
+          date: new Date(Date.now() + 12 * 60 * 60 * 1000)
         })
         .expect(400);
 

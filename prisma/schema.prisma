@@ -22,6 +22,8 @@ model Client {
   services     Service[]
   testimonials Testimonial[]
   blogPosts    BlogPost[]
+  availabilityRules      AvailabilityRule[]
+  availabilityExceptions AvailabilityException[]
 }
 
 model Service {
@@ -29,6 +31,8 @@ model Service {
   title       String
   description String
   price       Float
+  durationMinutes Int      @default(60)
+  bufferMinutes   Int      @default(15)
   isPublished Boolean       @default(false)
   Appointment Appointment[] //One-to-many with Appointment model
   Client      Client?       @relation(fields: [clientId], references: [id]) //foreign key pointing to Client model
@@ -42,9 +46,18 @@ model Appointment {
   email           String
   phone           String?
   date            DateTime
+  endDate         DateTime?
+  timezone        String   @default("MST")
   serviceId       String //Foreign Key linking Service model. Appointments are tied to services
   service         Service  @relation(fields: [serviceId], references: [id])
   states          String   @default("pending") // could change to "confirmed" or "cancelled"
+  paymentStatus   String   @default("pending")
+  paymentMethod   String?
+  tipAmount       Float?
+  calendarEventId String?
+  cancelledAt     DateTime?
+  rescheduledAt   DateTime?
+  reminderJobs    ReminderJob[]
 }
 
 model ContactRequest {
@@ -73,4 +86,41 @@ model BlogPost {
   Client      Client?  @relation(fields: [clientId], references: [id]) //Relation to Client model
   clientId    String?
   createdAt   DateTime @default(now())
+}
+
+model AvailabilityRule {
+  id           String   @id @default(uuid())
+  weekday      Int
+  startMinutes Int
+  endMinutes   Int
+  timezone     String   @default("MST")
+  isActive     Boolean  @default(true)
+  clientId     String?
+  client       Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model AvailabilityException {
+  id            String   @id @default(uuid())
+  startDateTime DateTime
+  endDateTime   DateTime
+  reason        String?
+  isBlocked     Boolean  @default(true)
+  clientId      String?
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ReminderJob {
+  id            String      @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  reminderType  String
+  sendAt        DateTime
+  status        String      @default("pending")
+  sentAt        DateTime?
+  errorMessage  String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([sendAt, status])
+  @@index([appointmentId, reminderType])
 }

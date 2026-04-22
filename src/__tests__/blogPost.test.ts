@@ -37,6 +37,7 @@ describe('Blog Post Routes', () => {
         data: {
           ...testBlogPost,
           clientId: createdClientId,
+          isPublished: true,
         },
       });
       createdBlogPostId = blogPost.id;

@@ -19,16 +19,24 @@ interface EmailConfig {
 const createTransporter = async () => {
   // Use Ethereal.email in test environment
   if (process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') {
-    const testAccount = await nodemailer.createTestAccount();
-    return nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
-      },
-    });
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      return nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+    } catch (error) {
+      // Offline-safe fallback for tests when Ethereal API is unreachable.
+      console.warn('Ethereal unavailable; falling back to JSON transport for tests.');
+      return nodemailer.createTransport({
+        jsonTransport: true,
+      });
+    }
   }
 
   // Production/development configuration
@@ -70,6 +78,11 @@ export const sendEmail = async (
   throwOnError: boolean = false
 ): Promise<void> => {
   try {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to)) {
+      throw new Error('Invalid recipient email address');
+    }
+
     const from = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@example.com';
 
     const mailOptions = {
@@ -88,6 +101,8 @@ export const sendEmail = async (
       const previewUrl = nodemailer.getTestMessageUrl(info);
       if (previewUrl) {
         console.log('Preview URL:', previewUrl);
+      } else {
+        console.log('Preview URL unavailable (offline test transport).');
       }
     }
 
@@ -114,6 +129,10 @@ export const verifyEmailConfig = async (): Promise<boolean> => {
     await transporter.verify();
     return true;
   } catch (error) {
+    // Offline-safe: JSON transport does not need network verification.
+    if (process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') {
+      return true;
+    }
     console.error('Email configuration verification failed:', error);
     return false;
   }

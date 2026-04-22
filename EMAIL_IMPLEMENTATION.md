@@ -2,6 +2,8 @@
 
 This document describes the email service implementation using Nodemailer.
 
+For full backend/API documentation (all modules, endpoints, scheduling rules, reminders, auth, and data model), see [`API_DOCUMENTATION.md`](./API_DOCUMENTATION.md).
+
 ## Overview
 
 The email service has been integrated to send emails for:

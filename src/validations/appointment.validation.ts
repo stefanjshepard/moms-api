@@ -1,9 +1,28 @@
 import Joi from 'joi';
+import {
+  DEFAULT_MIN_ADVANCE_HOURS,
+  DEFAULT_BUSINESS_END_MINUTES,
+  DEFAULT_BUSINESS_START_MINUTES,
+  isAtLeastHoursInAdvance,
+  isWithinMstBusinessHours,
+} from '../services/scheduling.service';
 
 // Constants for validation
 const VALID_STATES = ['pending', 'confirmed', 'cancelled'] as const;
 const PHONE_REGEX = /^\+?1?\d{9,15}$/; // Basic international phone format
-const MIN_SCHEDULING_HOURS = 24; // Minimum hours in advance for booking
+const VALID_PAYMENT_METHODS = ['venmo', 'credit_card'] as const;
+const VALID_PAYMENT_STATUSES = ['pending', 'paid'] as const;
+
+const validateBusinessHours = (value: Date, helpers: Joi.CustomHelpers) => {
+  const appointmentDate = new Date(value);
+  if (!isAtLeastHoursInAdvance(appointmentDate, DEFAULT_MIN_ADVANCE_HOURS)) {
+    return helpers.error('date.minAdvance');
+  }
+  if (!isWithinMstBusinessHours(appointmentDate, DEFAULT_BUSINESS_START_MINUTES, DEFAULT_BUSINESS_END_MINUTES)) {
+    return helpers.error('date.businessHours');
+  }
+  return value;
+};
 
 // Validation schema for creating/updating an appointment
 export const appointmentSchema = Joi.object({
@@ -53,11 +72,12 @@ export const appointmentSchema = Joi.object({
     }),
 
   date: Joi.date()
-    .min(new Date(Date.now() + MIN_SCHEDULING_HOURS * 60 * 60 * 1000)) // Minimum 24 hours in advance
+    .custom(validateBusinessHours)
     .required()
     .messages({
       'date.base': 'Please provide a valid date',
-      'date.min': 'Appointments must be scheduled at least 24 hours in advance',
+      'date.minAdvance': 'Appointments must be scheduled at least 24 hours in advance',
+      'date.businessHours': 'Appointments can only be scheduled Monday-Friday between 9:00 AM and 5:00 PM MST',
       'any.required': 'Appointment date is required'
     }),
 
@@ -75,6 +95,26 @@ export const appointmentSchema = Joi.object({
     .default('pending')
     .messages({
       'any.only': 'Status must be one of: pending, confirmed, or cancelled'
+    }),
+
+  paymentMethod: Joi.string()
+    .valid(...VALID_PAYMENT_METHODS)
+    .messages({
+      'any.only': 'Payment method must be one of: venmo or credit_card'
+    }),
+
+  paymentStatus: Joi.string()
+    .valid(...VALID_PAYMENT_STATUSES)
+    .default('pending')
+    .messages({
+      'any.only': 'Payment status must be one of: pending or paid'
+    }),
+
+  tipAmount: Joi.number()
+    .min(0)
+    .messages({
+      'number.base': 'Tip amount must be a number',
+      'number.min': 'Tip amount cannot be negative'
     })
 });
 
@@ -118,16 +158,36 @@ export const appointmentUpdateSchema = Joi.object({
     }),
 
   date: Joi.date()
-    .min(new Date(Date.now() + MIN_SCHEDULING_HOURS * 60 * 60 * 1000)) // Minimum 24 hours in advance
+    .custom(validateBusinessHours)
     .messages({
       'date.base': 'Please provide a valid date',
-      'date.min': 'Appointments must be scheduled at least 24 hours in advance'
+      'date.minAdvance': 'Appointments must be scheduled at least 24 hours in advance',
+      'date.businessHours': 'Appointments can only be scheduled Monday-Friday between 9:00 AM and 5:00 PM MST'
     }),
 
   states: Joi.string()
     .valid(...VALID_STATES)
     .messages({
       'any.only': 'Status must be one of: pending, confirmed, or cancelled'
+    }),
+
+  paymentMethod: Joi.string()
+    .valid(...VALID_PAYMENT_METHODS)
+    .messages({
+      'any.only': 'Payment method must be one of: venmo or credit_card'
+    }),
+
+  paymentStatus: Joi.string()
+    .valid(...VALID_PAYMENT_STATUSES)
+    .messages({
+      'any.only': 'Payment status must be one of: pending or paid'
+    }),
+
+  tipAmount: Joi.number()
+    .min(0)
+    .messages({
+      'number.base': 'Tip amount must be a number',
+      'number.min': 'Tip amount cannot be negative'
     })
 }).min(1); // At least one field must be provided
 

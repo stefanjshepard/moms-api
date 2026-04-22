@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { sendEmail, verifyEmailConfig } from '../services/email.service';
 import { adminAuth } from '../middleware/auth';
+import { dispatchDueAppointmentReminders } from '../services/reminder.service';
 
 const emailRouter = express.Router();
 
@@ -117,6 +118,25 @@ emailRouter.get('/config/verify', adminAuth, async (_req: Request, res: Response
       status: 'error',
       message: 'Failed to verify email configuration',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Dispatch due reminder jobs (admin-triggered; intended for cron/automation)
+emailRouter.post('/reminders/dispatch', adminAuth, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await dispatchDueAppointmentReminders();
+    res.json({
+      status: 'success',
+      message: 'Reminder dispatch completed',
+      ...result,
+    });
+  } catch (error) {
+    console.error('Error dispatching reminders:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to dispatch reminders',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

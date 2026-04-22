@@ -1,0 +1,1409 @@
+openapi: 3.0.3
+info:
+  title: Moms Website API
+  version: 1.0.0
+  description: >
+    OpenAPI specification for the current Moms Website backend.
+    Base route prefix is /api.
+servers:
+  - url: http://localhost:5001/api
+    description: Local development
+tags:
+  - name: Health
+  - name: Appointments
+  - name: Services
+  - name: Testimonials
+  - name: Blog
+  - name: Contact
+  - name: Admin Clients
+  - name: Admin Services
+  - name: Admin Testimonials
+  - name: Admin Blog
+  - name: Admin Email
+
+paths:
+  /:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: API is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: API is running
+
+  /appointments:
+    get:
+      tags: [Appointments]
+      summary: List appointments
+      operationId: listAppointments
+      parameters:
+        - in: query
+          name: dateFrom
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: dateTo
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: serviceId
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Appointment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Appointment"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Appointments]
+      summary: Create appointment
+      description: >
+        Enforces scheduling policy (Mon-Fri, 9am-5pm MST, 24h advance),
+        overlap protection, and reminder scheduling.
+      operationId: createAppointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentCreateRequest"
+      responses:
+        "201":
+          description: Appointment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Service not found
+        "409":
+          description: Scheduling conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Selected time conflicts with an existing appointment
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /appointments/available:
+    get:
+      tags: [Appointments]
+      summary: Get available slots by service and date
+      operationId: getAvailableAppointmentSlots
+      parameters:
+        - in: query
+          name: serviceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: date
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+            example: 2026-05-15
+      responses:
+        "200":
+          description: Available slot list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilitySlotsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /appointments/{id}:
+    get:
+      tags: [Appointments]
+      summary: Get appointment by ID
+      operationId: getAppointmentById
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Appointment found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "404":
+          description: Appointment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [Appointments]
+      summary: Update appointment
+      description: >
+        Supports customer data and date changes; date changes enforce 24h policy and overlap checks.
+      operationId: updateAppointment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentUpdateRequest"
+      responses:
+        "200":
+          description: Appointment updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Appointment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Scheduling conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Appointments]
+      summary: Cancel appointment
+      description: Requires cancellation at least 24 hours in advance.
+      operationId: deleteAppointment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Appointment deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Appointment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /appointments/{id}/confirm:
+    put:
+      tags: [Appointments]
+      summary: Confirm appointment after payment
+      operationId: confirmAppointment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentConfirmRequest"
+      responses:
+        "200":
+          description: Appointment confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /services:
+    get:
+      tags: [Services]
+      summary: List published services
+      operationId: listPublishedServices
+      responses:
+        "200":
+          description: Service list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /services/{id}:
+    get:
+      tags: [Services]
+      summary: Get published service by ID
+      operationId: getPublishedServiceById
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Service found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "404":
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /testimonials:
+    get:
+      tags: [Testimonials]
+      summary: List testimonials
+      operationId: listTestimonials
+      responses:
+        "200":
+          description: Testimonial list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Testimonial"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Testimonials]
+      summary: Create testimonial
+      operationId: createTestimonial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestimonialCreateRequest"
+      responses:
+        "201":
+          description: Testimonial created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Testimonial"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /testimonials/{id}:
+    get:
+      tags: [Testimonials]
+      summary: Get testimonial by ID
+      operationId: getTestimonialById
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Testimonial found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Testimonial"
+        "404":
+          description: Testimonial not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /blog:
+    get:
+      tags: [Blog]
+      summary: List published blog posts
+      operationId: listPublishedBlogPosts
+      responses:
+        "200":
+          description: Blog list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BlogPost"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /blog/{id}:
+    get:
+      tags: [Blog]
+      summary: Get published blog post by ID
+      operationId: getPublishedBlogPostById
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Blog post found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlogPost"
+        "404":
+          description: Blog post not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /contact:
+    get:
+      tags: [Contact]
+      summary: List contact requests
+      operationId: listContactRequests
+      responses:
+        "200":
+          description: Contact request list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContactRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Contact]
+      summary: Create contact request
+      operationId: createContactRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactRequestCreateRequest"
+      responses:
+        "201":
+          description: Contact request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /contact/{id}:
+    delete:
+      tags: [Contact]
+      summary: Delete contact request
+      operationId: deleteContactRequest
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Contact request deleted
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/clients:
+    get:
+      tags: [Admin Clients]
+      summary: List clients
+      operationId: adminListClients
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Client list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Admin Clients]
+      summary: Create client
+      operationId: adminCreateClient
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCreateRequest"
+      responses:
+        "201":
+          description: Client created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/clients/{id}:
+    get:
+      tags: [Admin Clients]
+      summary: Get client by ID
+      operationId: adminGetClientById
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Client found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [Admin Clients]
+      summary: Update client
+      operationId: adminUpdateClient
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCreateRequest"
+      responses:
+        "200":
+          description: Client updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Admin Clients]
+      summary: Delete client
+      operationId: adminDeleteClient
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Client deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/services/admin/all:
+    get:
+      tags: [Admin Services]
+      summary: List all services (published and unpublished)
+      operationId: adminListAllServices
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Service list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/services:
+    post:
+      tags: [Admin Services]
+      summary: Create service
+      operationId: adminCreateService
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceCreateRequest"
+      responses:
+        "201":
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/services/{id}:
+    put:
+      tags: [Admin Services]
+      summary: Update service
+      operationId: adminUpdateService
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceCreateRequest"
+      responses:
+        "200":
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Admin Services]
+      summary: Delete service
+      operationId: adminDeleteService
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Service deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/services/{id}/publish:
+    patch:
+      tags: [Admin Services]
+      summary: Publish or unpublish service
+      operationId: adminPublishService
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isPublished]
+              properties:
+                isPublished:
+                  type: boolean
+      responses:
+        "200":
+          description: Service publish state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/testimonials:
+    get:
+      tags: [Admin Testimonials]
+      summary: List testimonials
+      operationId: adminListTestimonials
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Testimonial list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Testimonial"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Admin Testimonials]
+      summary: Create testimonial
+      operationId: adminCreateTestimonial
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestimonialCreateRequest"
+      responses:
+        "201":
+          description: Testimonial created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Testimonial"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/testimonials/{id}:
+    get:
+      tags: [Admin Testimonials]
+      summary: Get testimonial by ID
+      operationId: adminGetTestimonialById
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Testimonial found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Testimonial"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Testimonial not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/blog-posts:
+    get:
+      tags: [Admin Blog]
+      summary: List blog posts
+      operationId: adminListBlogPosts
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Blog post list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BlogPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Admin Blog]
+      summary: Create blog post
+      operationId: adminCreateBlogPost
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlogPostCreateRequest"
+      responses:
+        "201":
+          description: Blog post created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlogPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/blog-posts/{id}:
+    get:
+      tags: [Admin Blog]
+      summary: Get blog post by ID
+      operationId: adminGetBlogPostById
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Blog post found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlogPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Blog post not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [Admin Blog]
+      summary: Update blog post
+      operationId: adminUpdateBlogPost
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlogPostCreateRequest"
+      responses:
+        "200":
+          description: Blog post updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlogPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Admin Blog]
+      summary: Delete blog post
+      operationId: adminDeleteBlogPost
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Blog post deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/blog-posts/{id}/publish:
+    patch:
+      tags: [Admin Blog]
+      summary: Publish or unpublish blog post
+      operationId: adminPublishBlogPost
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isPublished]
+              properties:
+                isPublished:
+                  type: boolean
+      responses:
+        "200":
+          description: Blog publish state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlogPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/email/verify:
+    post:
+      tags: [Admin Email]
+      summary: Send verification email
+      operationId: adminSendVerificationEmail
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Verification email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  recipient:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/email/config/verify:
+    get:
+      tags: [Admin Email]
+      summary: Verify email configuration
+      operationId: adminVerifyEmailConfig
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Config valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                  config:
+                    type: object
+                    properties:
+                      host:
+                        type: string
+                      port:
+                        type: string
+                      fromEmail:
+                        type: string
+                      fromName:
+                        type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Config invalid or verification failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+                  config:
+                    type: object
+
+  /admin/email/reminders/dispatch:
+    post:
+      tags: [Admin Email]
+      summary: Dispatch due reminder jobs
+      operationId: adminDispatchReminderJobs
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Dispatch completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                  processed:
+                    type: integer
+                  sent:
+                    type: integer
+                  failed:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-admin-key
+
+  parameters:
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Resource identifier
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Unauthorized
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ErrorResponse"
+              - $ref: "#/components/schemas/MessageResponse"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    Client:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        aboutMe:
+          type: string
+        email:
+          type: string
+          format: email
+      required: [id, name, aboutMe, email]
+
+    ClientCreateRequest:
+      type: object
+      required: [name, aboutMe, email]
+      properties:
+        name:
+          type: string
+        aboutMe:
+          type: string
+        email:
+          type: string
+          format: email
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+        bufferMinutes:
+          type: integer
+        isPublished:
+          type: boolean
+        clientId:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+        [id, title, description, price, durationMinutes, bufferMinutes, isPublished]
+
+    ServiceCreateRequest:
+      type: object
+      required: [title, description, price, clientId]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+          default: 60
+        bufferMinutes:
+          type: integer
+          default: 15
+        clientId:
+          type: string
+          format: uuid
+
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        clientFirstName:
+          type: string
+        clientLastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        date:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+        timezone:
+          type: string
+          example: MST
+        serviceId:
+          type: string
+          format: uuid
+        states:
+          type: string
+          enum: [pending, confirmed, cancelled]
+        paymentStatus:
+          type: string
+        paymentMethod:
+          type: string
+          nullable: true
+        tipAmount:
+          type: number
+          nullable: true
+        calendarEventId:
+          type: string
+          nullable: true
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+        rescheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        service:
+          $ref: "#/components/schemas/Service"
+      required:
+        - id
+        - clientFirstName
+        - clientLastName
+        - email
+        - date
+        - timezone
+        - serviceId
+        - states
+
+    AppointmentCreateRequest:
+      type: object
+      required:
+        [clientFirstName, clientLastName, email, phone, date, serviceId]
+      properties:
+        clientFirstName:
+          type: string
+        clientLastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        date:
+          type: string
+          format: date-time
+        serviceId:
+          type: string
+          format: uuid
+        paymentMethod:
+          type: string
+          enum: [venmo, credit_card]
+        paymentStatus:
+          type: string
+          enum: [pending, paid]
+        tipAmount:
+          type: number
+
+    AppointmentUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        clientFirstName:
+          type: string
+        clientLastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        date:
+          type: string
+          format: date-time
+        states:
+          type: string
+          enum: [pending, confirmed, cancelled]
+        paymentMethod:
+          type: string
+          enum: [venmo, credit_card]
+        paymentStatus:
+          type: string
+          enum: [pending, paid]
+        tipAmount:
+          type: number
+
+    AppointmentConfirmRequest:
+      type: object
+      required: [appointmentId, paymentStatus]
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+        paymentStatus:
+          type: string
+          enum: [completed, pending, failed]
+
+    AvailabilitySlotsResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          example: 2026-05-15
+        timezone:
+          type: string
+          example: MST
+        serviceId:
+          type: string
+          format: uuid
+        durationMinutes:
+          type: integer
+        bufferMinutes:
+          type: integer
+        slots:
+          type: array
+          items:
+            type: string
+            format: date-time
+      required: [date, timezone, serviceId, durationMinutes, bufferMinutes, slots]
+
+    ContactRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, email, message, createdAt]
+
+    ContactRequestCreateRequest:
+      type: object
+      required: [name, email, message]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        message:
+          type: string
+
+    Testimonial:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+        content:
+          type: string
+        isPublished:
+          type: boolean
+        clientId:
+          type: string
+          format: uuid
+          nullable: true
+      required: [id, title, author, content, isPublished]
+
+    TestimonialCreateRequest:
+      type: object
+      required: [title, author, content]
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        content:
+          type: string
+        isPublished:
+          type: boolean
+        clientId:
+          type: string
+          format: uuid
+
+    BlogPost:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        isPublished:
+          type: boolean
+        clientId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, title, content, isPublished]
+
+    BlogPostCreateRequest:
+      type: object
+      required: [title, content]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        isPublished:
+          type: boolean
+        clientId:
+          type: string
+          format: uuid
+

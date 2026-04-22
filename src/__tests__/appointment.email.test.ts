@@ -9,6 +9,7 @@ import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from '../services/email.service';
 import '../__tests__/setup';
+import { getValidMstBookingDate } from './utils/scheduling';
 
 const prisma = new PrismaClient();
 const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
@@ -25,7 +26,7 @@ describe('Appointment Email Integration', () => {
     clientLastName: 'Doe',
     email: 'john.doe@example.com',
     phone: '1234567890',
-    date: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(), // 25 hours from now
+    date: getValidMstBookingDate().toISOString(),
   };
 
   let createdServiceId: string;
@@ -145,7 +146,7 @@ describe('Appointment Email Integration', () => {
         include: { service: true },
       });
 
-      const newDate = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 48 hours from now
+      const newDate = getValidMstBookingDate(11, 2).toISOString();
 
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
@@ -176,7 +177,7 @@ describe('Appointment Email Integration', () => {
         },
       });
 
-      const newDate = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      const newDate = getValidMstBookingDate(11, 2).toISOString();
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
         .send({ date: newDate })
@@ -230,7 +231,7 @@ describe('Appointment Email Integration', () => {
         include: { service: true },
       });
 
-      const newDate = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      const newDate = getValidMstBookingDate(11, 2).toISOString();
 
       await request(app)
         .put(`/api/appointments/${appointment.id}`)

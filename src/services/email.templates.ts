@@ -61,6 +61,16 @@ interface AppointmentCancellationNotificationToOwnerData {
   appointmentId: string;
 }
 
+interface AppointmentReminderData {
+  clientFirstName: string;
+  clientLastName: string;
+  email: string;
+  phone?: string | null;
+  date: Date;
+  serviceTitle: string;
+  appointmentId: string;
+}
+
 // Appointment Confirmation Email (when appointment is created)
 export const appointmentConfirmationTemplate = (data: AppointmentData): string => {
   const formattedDate = new Date(data.date).toLocaleString('en-US', {
@@ -460,6 +470,111 @@ export const appointmentCancellationNotificationToOwnerTemplate = (
               <p><strong>Email:</strong> <a href="mailto:${escapeHtml(data.customerEmail)}">${escapeHtml(data.customerEmail)}</a></p>
               ${phoneLine}
             </div>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated message from your booking system.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+// Appointment Reminder Email (24h before appointment)
+export const appointmentReminderTemplate = (data: AppointmentReminderData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #7b61ff; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #7b61ff; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Appointment Reminder</h1>
+        </div>
+        <div class="content">
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
+          <p>This is a friendly reminder that your appointment is in 24 hours.</p>
+          <div class="details">
+            <h3>Appointment Details:</h3>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date & Time:</strong> ${formattedDate}</p>
+            <p><strong>Appointment ID:</strong> ${escapeHtml(data.appointmentId)}</p>
+          </div>
+          <p>If you need to reschedule or cancel, please do so at least 24 hours in advance.</p>
+        </div>
+        <div class="footer">
+          <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+// Appointment Reminder Email (to business owner, 24h before appointment)
+export const appointmentReminderToOwnerTemplate = (data: AppointmentNotificationToOwnerData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  const fullName = `${escapeHtml(data.customerFirstName)} ${escapeHtml(data.customerLastName)}`.trim();
+  const phoneLine = data.customerPhone
+    ? `<p><strong>Phone:</strong> <a href="tel:${escapeHtml(data.customerPhone)}">${escapeHtml(data.customerPhone)}</a></p>`
+    : '<p><strong>Phone:</strong> Not provided</p>';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #7b61ff; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #7b61ff; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Upcoming Appointment Reminder (24h)</h1>
+        </div>
+        <div class="content">
+          <p>You have an appointment coming up in 24 hours.</p>
+          <div class="details">
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date & Time:</strong> ${formattedDate}</p>
+            <p><strong>Client:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> <a href="mailto:${escapeHtml(data.customerEmail)}">${escapeHtml(data.customerEmail)}</a></p>
+            ${phoneLine}
+            <p><strong>Appointment ID:</strong> ${escapeHtml(data.appointmentId)}</p>
           </div>
         </div>
         <div class="footer">

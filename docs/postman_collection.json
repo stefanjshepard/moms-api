@@ -1,0 +1,441 @@
+{
+  "info": {
+    "name": "Moms Website API",
+    "_postman_id": "9f0b3b6c-df95-4ccd-92de-04ef451b3d72",
+    "description": "Postman collection for Moms Website API. Set collection variables first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5001/api" },
+    { "key": "adminKey", "value": "your-admin-key" },
+    { "key": "serviceId", "value": "" },
+    { "key": "appointmentId", "value": "" },
+    { "key": "clientId", "value": "" },
+    { "key": "blogPostId", "value": "" },
+    { "key": "testimonialId", "value": "" },
+    { "key": "contactId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public - Services",
+      "item": [
+        {
+          "name": "GET /services",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/services", "host": ["{{baseUrl}}"], "path": ["services"] }
+          }
+        },
+        {
+          "name": "GET /services/:id",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/services/{{serviceId}}", "host": ["{{baseUrl}}"], "path": ["services", "{{serviceId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public - Appointments",
+      "item": [
+        {
+          "name": "POST /appointments",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clientFirstName\": \"John\",\n  \"clientLastName\": \"Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"phone\": \"+15555551234\",\n  \"date\": \"2026-05-20T17:00:00.000Z\",\n  \"serviceId\": \"{{serviceId}}\",\n  \"paymentMethod\": \"credit_card\",\n  \"paymentStatus\": \"pending\",\n  \"tipAmount\": 0\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/appointments", "host": ["{{baseUrl}}"], "path": ["appointments"] }
+          }
+        },
+        {
+          "name": "GET /appointments",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/appointments", "host": ["{{baseUrl}}"], "path": ["appointments"] }
+          }
+        },
+        {
+          "name": "GET /appointments with filters",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/appointments?serviceId={{serviceId}}&dateFrom=2026-05-20T00:00:00.000Z&dateTo=2026-05-21T00:00:00.000Z",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [
+                { "key": "serviceId", "value": "{{serviceId}}" },
+                { "key": "dateFrom", "value": "2026-05-20T00:00:00.000Z" },
+                { "key": "dateTo", "value": "2026-05-21T00:00:00.000Z" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /appointments/available",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/appointments/available?serviceId={{serviceId}}&date=2026-05-20",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments", "available"],
+              "query": [
+                { "key": "serviceId", "value": "{{serviceId}}" },
+                { "key": "date", "value": "2026-05-20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /appointments/:id",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/appointments/{{appointmentId}}", "host": ["{{baseUrl}}"], "path": ["appointments", "{{appointmentId}}"] }
+          }
+        },
+        {
+          "name": "PUT /appointments/:id",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-05-21T17:00:00.000Z\",\n  \"paymentMethod\": \"venmo\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/appointments/{{appointmentId}}", "host": ["{{baseUrl}}"], "path": ["appointments", "{{appointmentId}}"] }
+          }
+        },
+        {
+          "name": "PUT /appointments/:id/confirm",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"appointmentId\": \"{{appointmentId}}\",\n  \"paymentStatus\": \"completed\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/appointments/{{appointmentId}}/confirm", "host": ["{{baseUrl}}"], "path": ["appointments", "{{appointmentId}}", "confirm"] }
+          }
+        },
+        {
+          "name": "DELETE /appointments/:id",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/appointments/{{appointmentId}}", "host": ["{{baseUrl}}"], "path": ["appointments", "{{appointmentId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public - Contact",
+      "item": [
+        {
+          "name": "POST /contact",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\",\n  \"message\": \"I would like to book a session.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/contact", "host": ["{{baseUrl}}"], "path": ["contact"] }
+          }
+        },
+        {
+          "name": "GET /contact",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/contact", "host": ["{{baseUrl}}"], "path": ["contact"] }
+          }
+        },
+        {
+          "name": "DELETE /contact/:id",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/contact/{{contactId}}", "host": ["{{baseUrl}}"], "path": ["contact", "{{contactId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public - Blog/Testimonial",
+      "item": [
+        {
+          "name": "GET /blog",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/blog", "host": ["{{baseUrl}}"], "path": ["blog"] }
+          }
+        },
+        {
+          "name": "GET /blog/:id",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/blog/{{blogPostId}}", "host": ["{{baseUrl}}"], "path": ["blog", "{{blogPostId}}"] }
+          }
+        },
+        {
+          "name": "GET /testimonials",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/testimonials", "host": ["{{baseUrl}}"], "path": ["testimonials"] }
+          }
+        },
+        {
+          "name": "GET /testimonials/:id",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/testimonials/{{testimonialId}}", "host": ["{{baseUrl}}"], "path": ["testimonials", "{{testimonialId}}"] }
+          }
+        },
+        {
+          "name": "POST /testimonials",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Wonderful Session\",\n  \"author\": \"A Client\",\n  \"content\": \"This was deeply supportive and helpful.\",\n  \"isPublished\": true\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/testimonials", "host": ["{{baseUrl}}"], "path": ["testimonials"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Clients",
+      "item": [
+        {
+          "name": "GET /admin/clients",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/clients", "host": ["{{baseUrl}}"], "path": ["admin", "clients"] }
+          }
+        },
+        {
+          "name": "POST /admin/clients",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Annette Rodriguez Nathan\",\n  \"aboutMe\": \"Practitioner profile text\",\n  \"email\": \"onenessbody1@gmail.com\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/clients", "host": ["{{baseUrl}}"], "path": ["admin", "clients"] }
+          }
+        },
+        {
+          "name": "GET /admin/clients/:id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/clients/{{clientId}}", "host": ["{{baseUrl}}"], "path": ["admin", "clients", "{{clientId}}"] }
+          }
+        },
+        {
+          "name": "PUT /admin/clients/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Name\",\n  \"aboutMe\": \"Updated profile content\",\n  \"email\": \"onenessbody1@gmail.com\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/clients/{{clientId}}", "host": ["{{baseUrl}}"], "path": ["admin", "clients", "{{clientId}}"] }
+          }
+        },
+        {
+          "name": "DELETE /admin/clients/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/clients/{{clientId}}", "host": ["{{baseUrl}}"], "path": ["admin", "clients", "{{clientId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Services",
+      "item": [
+        {
+          "name": "GET /admin/services/admin/all",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/services/admin/all", "host": ["{{baseUrl}}"], "path": ["admin", "services", "admin", "all"] }
+          }
+        },
+        {
+          "name": "POST /admin/services",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Somatic Emotional Release (60 minutes)\",\n  \"description\": \"Online somatic emotional release work using craniosacral therapy remote techniques.\",\n  \"price\": 140,\n  \"durationMinutes\": 60,\n  \"bufferMinutes\": 15,\n  \"clientId\": \"{{clientId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/services", "host": ["{{baseUrl}}"], "path": ["admin", "services"] }
+          }
+        },
+        {
+          "name": "PUT /admin/services/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Service\",\n  \"description\": \"Updated service description with enough length for validation.\",\n  \"price\": 150,\n  \"durationMinutes\": 60,\n  \"bufferMinutes\": 15,\n  \"clientId\": \"{{clientId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/services/{{serviceId}}", "host": ["{{baseUrl}}"], "path": ["admin", "services", "{{serviceId}}"] }
+          }
+        },
+        {
+          "name": "PATCH /admin/services/:id/publish",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"isPublished\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/admin/services/{{serviceId}}/publish", "host": ["{{baseUrl}}"], "path": ["admin", "services", "{{serviceId}}", "publish"] }
+          }
+        },
+        {
+          "name": "DELETE /admin/services/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/services/{{serviceId}}", "host": ["{{baseUrl}}"], "path": ["admin", "services", "{{serviceId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Blog/Testimonial",
+      "item": [
+        {
+          "name": "GET /admin/blog-posts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/blog-posts", "host": ["{{baseUrl}}"], "path": ["admin", "blog-posts"] }
+          }
+        },
+        {
+          "name": "POST /admin/blog-posts",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"New Blog Post\",\n  \"content\": \"This is a blog post body.\",\n  \"clientId\": \"{{clientId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/blog-posts", "host": ["{{baseUrl}}"], "path": ["admin", "blog-posts"] }
+          }
+        },
+        {
+          "name": "PATCH /admin/blog-posts/:id/publish",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"isPublished\": true\n}" },
+            "url": { "raw": "{{baseUrl}}/admin/blog-posts/{{blogPostId}}/publish", "host": ["{{baseUrl}}"], "path": ["admin", "blog-posts", "{{blogPostId}}", "publish"] }
+          }
+        },
+        {
+          "name": "GET /admin/testimonials",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/testimonials", "host": ["{{baseUrl}}"], "path": ["admin", "testimonials"] }
+          }
+        },
+        {
+          "name": "POST /admin/testimonials",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Highly Recommend\",\n  \"author\": \"Client\",\n  \"content\": \"Amazing experience.\",\n  \"isPublished\": true,\n  \"clientId\": \"{{clientId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/testimonials", "host": ["{{baseUrl}}"], "path": ["admin", "testimonials"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Email Ops",
+      "item": [
+        {
+          "name": "POST /admin/email/verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"your-email@example.com\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/email/verify", "host": ["{{baseUrl}}"], "path": ["admin", "email", "verify"] }
+          }
+        },
+        {
+          "name": "GET /admin/email/config/verify",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/email/config/verify", "host": ["{{baseUrl}}"], "path": ["admin", "email", "config", "verify"] }
+          }
+        },
+        {
+          "name": "POST /admin/email/reminders/dispatch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/email/reminders/dispatch", "host": ["{{baseUrl}}"], "path": ["admin", "email", "reminders", "dispatch"] }
+          }
+        }
+      ]
+    }
+  ]
+}
