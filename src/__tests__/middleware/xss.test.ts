@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { app } from '../../index';
 import { PrismaClient } from '@prisma/client';
+import { getValidMstBookingDate } from '../utils/scheduling';
 
 const prisma = new PrismaClient();
 
@@ -50,7 +51,7 @@ describe('XSS Sanitizer Middleware', () => {
       clientLastName: 'Doe<script>alert("XSS")</script>',
       email: 'john.doe@example.com',
       phone: '+1234567890', // Valid phone format
-      date: new Date(Date.now() + 25 * 60 * 60 * 1000), // 25 hours from now
+      date: getValidMstBookingDate(),
       serviceId: testServiceId
     };
 
@@ -94,7 +95,7 @@ describe('XSS Sanitizer Middleware', () => {
       clientLastName: 'Doe',
       email: 'john.doe@example.com',
       phone: '+1234567890', // Valid phone format
-      date: new Date(Date.now() + 25 * 60 * 60 * 1000), // 25 hours from now
+      date: getValidMstBookingDate(),
       serviceId: testServiceId,
       notes: {
         text: '<script>alert("XSS")</script>Some notes',

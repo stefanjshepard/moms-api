@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { testServer } from './server';
+import { resetAllLimiters } from '../middleware/rateLimit';
 
 const prisma = new PrismaClient();
 
@@ -22,19 +22,14 @@ export const cleanupDatabase = async () => {
   }
 };
 
-// Start server before all tests
-beforeAll(async () => {
-  await testServer.start();
-}, 30000); // Increase timeout to 30 seconds
-
 // Clean up after all tests
 afterAll(async () => {
-  await testServer.stop();
   await prisma.$disconnect();
 }, 30000); // Increase timeout to 30 seconds
 
 // Clean up database before each test
 beforeEach(async () => {
+  await resetAllLimiters();
   await cleanupDatabase();
 }, 30000); // Increase timeout to 30 seconds
 

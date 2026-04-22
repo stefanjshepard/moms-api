@@ -4,16 +4,15 @@ import { MemoryStore } from 'express-rate-limit';
 // Custom store for testing that allows manual reset
 class TestMemoryStore extends MemoryStore {
   async resetKey(key: string): Promise<void> {
-    return new Promise((resolve) => {
-      // @ts-ignore - client is a private property in MemoryStore
-      this.client.del(key, () => {
-        resolve();
-      });
-    });
+    // Clear the key from both current and previous maps
+    this.current.delete(key);
+    this.previous.delete(key);
   }
 
   async resetAll(): Promise<void> {
-    await this.resetKey('::ffff:127.0.0.1');
+    // Clear all keys from both maps
+    this.current.clear();
+    this.previous.clear();
   }
 }
 
@@ -44,14 +43,18 @@ const createLimiter = (options: {
 };
 
 // Create rate limiter
+const apiLimiterStore = isTest ? new TestMemoryStore() : new MemoryStore();
 export const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: isTest ? 1000 : 15 * 60 * 1000, // 1 second in test, 15 minutes in production
+  max: isTest ? 10 : 100, // 10 requests in test, 100 in production
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  store: process.env.NODE_ENV === 'test' ? new TestMemoryStore() : new MemoryStore()
+  store: apiLimiterStore
 });
+
+// Add the store to the limiter for test resets
+(apiLimiter as any).store = apiLimiterStore;
 
 // More strict limit for authentication routes
 export const authLimiter = createLimiter({

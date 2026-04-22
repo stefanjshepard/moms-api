@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { app } from '../../index';
 import { PrismaClient } from '@prisma/client';
+import { getValidMstBookingDate } from '../utils/scheduling';
 
 const prisma = new PrismaClient();
 
@@ -52,7 +53,7 @@ describe('HPP Middleware', () => {
   });
 
   it('should handle duplicate body parameters', async () => {
-    const date = encodeURIComponent(new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString());
+    const date = encodeURIComponent(getValidMstBookingDate().toISOString());
     const response = await request(app)
       .post('/api/appointments')
       .type('form')
@@ -83,7 +84,7 @@ describe('HPP Middleware', () => {
   });
 
   it('should handle mixed parameter types', async () => {
-    const date = encodeURIComponent(new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString());
+    const date = encodeURIComponent(getValidMstBookingDate().toISOString());
     const response = await request(app)
       .post('/api/appointments')
       .type('form')

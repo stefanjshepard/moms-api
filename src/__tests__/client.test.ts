@@ -1,9 +1,12 @@
 import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
-import '../__tests__/setup';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Client Routes', () => {
   // Test data
@@ -11,20 +14,6 @@ describe('Client Routes', () => {
     name: 'Test Client',
     aboutMe: 'This is a test client',
     email: 'test@example.com',
-  };
-
-  const testService = {
-    title: 'Test Service',
-    description: 'This is a test service',
-    price: 99.99,
-  };
-
-  const testAppointment = {
-    clientFirstName: 'John',
-    clientLastName: 'Doe',
-    email: 'john.doe@example.com',
-    phone: '123-456-7890',
-    date: new Date('2024-04-20T10:00:00Z'),
   };
 
   const testTestimonial = {
@@ -39,7 +28,6 @@ describe('Client Routes', () => {
   };
 
   let createdClientId: string;
-  let createdServiceId: string;
 
   beforeEach(async () => {
     try {
@@ -55,23 +43,6 @@ describe('Client Routes', () => {
         data: testClient,
       });
       createdClientId = client.id;
-
-      // Create a service for the client
-      const service = await prisma.service.create({
-        data: {
-          ...testService,
-          clientId: createdClientId,
-        },
-      });
-      createdServiceId = service.id;
-
-      // Create an appointment for the service
-      await prisma.appointment.create({
-        data: {
-          ...testAppointment,
-          serviceId: createdServiceId,
-        },
-      });
 
       // Create testimonial for the client
       await prisma.testimonial.create({
@@ -93,7 +64,6 @@ describe('Client Routes', () => {
       const createdClient = await prisma.client.findUnique({
         where: { id: createdClientId },
         include: {
-          services: true,
           testimonials: true,
           blogPosts: true,
         },
@@ -101,10 +71,6 @@ describe('Client Routes', () => {
 
       if (!createdClient) {
         throw new Error('Client was not created properly');
-      }
-
-      if (createdClient.services.length === 0) {
-        throw new Error('Service was not created properly');
       }
 
       if (createdClient.testimonials.length === 0) {
@@ -124,40 +90,83 @@ describe('Client Routes', () => {
     await prisma.$disconnect();
   });
 
-  describe('GET /api/client', () => {
-    it('should return client profile with related data', async () => {
+  describe('GET /api/admin/clients', () => {
+    it('should return all clients', async () => {
       const response = await request(app)
-        .get('/api/client')
+        .get('/api/admin/clients')
+        .set('x-admin-key', ADMIN_KEY)
         .expect(200);
 
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.name).toBe(testClient.name);
-      expect(response.body.aboutMe).toBe(testClient.aboutMe);
-      expect(response.body.email).toBe(testClient.email);
-      expect(Array.isArray(response.body.services)).toBe(true);
-      expect(response.body.services.length).toBeGreaterThan(0);
-      expect(Array.isArray(response.body.testimonials)).toBe(true);
-      expect(response.body.testimonials.length).toBeGreaterThan(0);
-      expect(Array.isArray(response.body.blogPosts)).toBe(true);
-      expect(response.body.blogPosts.length).toBeGreaterThan(0);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBeGreaterThan(0);
+      expect(response.body[0]).toHaveProperty('id');
+      expect(response.body[0].name).toBe(testClient.name);
     });
 
-    it('should return 404 if client not found', async () => {
-      // Delete the client first
-      await prisma.client.delete({
-        where: { id: createdClientId },
-      });
-
+    it('should reject unauthorized requests', async () => {
       const response = await request(app)
-        .get('/api/client')
-        .expect(404);
+        .get('/api/admin/clients')
+        .expect(401);
 
-      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toBe('Unauthorized');
     });
   });
 
-  describe('PUT /api/client', () => {
-    it('should update client profile', async () => {
+  describe('GET /api/admin/clients/:id', () => {
+    it('should return client by ID', async () => {
+      const response = await request(app)
+        .get(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
+        .expect(200);
+
+      expect(response.body.id).toBe(createdClientId);
+      expect(response.body.name).toBe(testClient.name);
+      expect(response.body.aboutMe).toBe(testClient.aboutMe);
+      expect(response.body.email).toBe(testClient.email);
+    });
+
+    it('should return 404 if client not found', async () => {
+      const response = await request(app)
+        .get('/api/admin/clients/non-existent-id')
+        .set('x-admin-key', ADMIN_KEY)
+        .expect(404);
+
+      expect(response.body.error).toBe('Client not found');
+    });
+  });
+
+  describe('POST /api/admin/clients', () => {
+    it('should create a new client', async () => {
+      const newClient = {
+        name: 'New Client',
+        aboutMe: 'This is a new test client',
+        email: 'new@example.com',
+      };
+
+      const response = await request(app)
+        .post('/api/admin/clients')
+        .set('x-admin-key', ADMIN_KEY)
+        .send(newClient)
+        .expect(201);
+
+      expect(response.body.name).toBe(newClient.name);
+      expect(response.body.aboutMe).toBe(newClient.aboutMe);
+      expect(response.body.email).toBe(newClient.email);
+    });
+
+    it('should return 400 if required fields are missing', async () => {
+      const response = await request(app)
+        .post('/api/admin/clients')
+        .set('x-admin-key', ADMIN_KEY)
+        .send({ name: 'Incomplete Client' })
+        .expect(400);
+
+      expect(response.body.error).toBeDefined();
+    });
+  });
+
+  describe('PUT /api/admin/clients/:id', () => {
+    it('should update client', async () => {
       const updatedData = {
         name: 'Updated Client',
         aboutMe: 'This is an updated client',
@@ -165,7 +174,8 @@ describe('Client Routes', () => {
       };
 
       const response = await request(app)
-        .put('/api/client')
+        .put(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send(updatedData)
         .expect(200);
 
@@ -173,60 +183,19 @@ describe('Client Routes', () => {
       expect(response.body.aboutMe).toBe(updatedData.aboutMe);
       expect(response.body.email).toBe(updatedData.email);
     });
-
-    it('should return 400 if required fields are missing', async () => {
-      const response = await request(app)
-        .put('/api/client')
-        .send({ name: 'Incomplete Client' })
-        .expect(400);
-
-      expect(response.body).toHaveProperty('error');
-    });
   });
 
-  describe('GET /api/client/services', () => {
-    it('should return client services', async () => {
-      const response = await request(app)
-        .get('/api/client/services')
-        .expect(200);
+  describe('DELETE /api/admin/clients/:id', () => {
+    it('should delete client', async () => {
+      await request(app)
+        .delete(`/api/admin/clients/${createdClientId}`)
+        .set('x-admin-key', ADMIN_KEY)
+        .expect(204);
 
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body[0]).toHaveProperty('id');
-      expect(response.body[0]).toHaveProperty('title');
-      expect(response.body[0]).toHaveProperty('clientId');
-      expect(response.body[0].clientId).toBe(createdClientId);
-    });
-  });
-
-  describe('GET /api/client/testimonials', () => {
-    it('should return client testimonials', async () => {
-      const response = await request(app)
-        .get('/api/client/testimonials')
-        .expect(200);
-
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body[0]).toHaveProperty('id');
-      expect(response.body[0]).toHaveProperty('title');
-      expect(response.body[0]).toHaveProperty('content');
-      expect(response.body[0]).toHaveProperty('clientId');
-      expect(response.body[0].clientId).toBe(createdClientId);
-    });
-  });
-
-  describe('GET /api/client/blog-posts', () => {
-    it('should return client blog posts', async () => {
-      const response = await request(app)
-        .get('/api/client/blog-posts')
-        .expect(200);
-
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body[0]).toHaveProperty('id');
-      expect(response.body[0]).toHaveProperty('title');
-      expect(response.body[0]).toHaveProperty('clientId');
-      expect(response.body[0].clientId).toBe(createdClientId);
+      const deletedClient = await prisma.client.findUnique({
+        where: { id: createdClientId }
+      });
+      expect(deletedClient).toBeNull();
     });
   });
 }); 

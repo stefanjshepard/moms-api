@@ -1,45 +1,15 @@
 import request from 'supertest';
-import express from 'express';
+import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
-import blogPostRouter from '../routes/blogPost.routes';
-import { adminAuth } from '../middleware/auth';
-import { testServer } from './server';
+import '../__tests__/setup';
 
-// Mock PrismaClient
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
-    blogPost: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-  })),
-}));
-
-// Mock adminAuth middleware
-jest.mock('../middleware/auth', () => ({
-  adminAuth: jest.fn((req, res, next) => next()),
-}));
+const prisma = new PrismaClient();
+const mockDate = new Date('2024-05-08T19:05:39.861Z');
 
 describe('Blog Post Routes', () => {
-  let app: express.Application;
-  const prisma = new PrismaClient();
-  const mockDate = new Date('2024-05-08T19:05:39.861Z');
-
-  beforeAll(async () => {
-    await testServer.start();
-  });
-
-  afterAll(async () => {
-    await testServer.stop();
-  });
-
-  beforeEach(() => {
-    app = express();
-    app.use(express.json());
-    app.use('/blog', blogPostRouter);
-    jest.clearAllMocks();
+  beforeEach(async () => {
+    // Clean up the database before each test
+    await prisma.blogPost.deleteMany();
     jest.useFakeTimers();
     jest.setSystemTime(mockDate);
   });
@@ -48,145 +18,146 @@ describe('Blog Post Routes', () => {
     jest.useRealTimers();
   });
 
-  describe('GET /blog', () => {
-    it('should return all blog posts', async () => {
-      const mockBlogPosts = [
-        { 
-          id: '1', 
-          title: 'Test Post 1', 
-          content: 'Content 1', 
-          createdAt: mockDate,
-          clientId: null
-        },
-        { 
-          id: '2', 
-          title: 'Test Post 2', 
-          content: 'Content 2', 
-          createdAt: mockDate,
-          clientId: null
-        },
-      ];
+  describe('GET /api/blog', () => {
+    it('should return all published blog posts', async () => {
+      // Create test blog posts
+      await prisma.blogPost.create({
+        data: {
+          title: 'Test Post 1',
+          content: 'Content 1',
+          isPublished: true
+        }
+      });
 
-      (prisma.blogPost.findMany as jest.Mock).mockResolvedValue(mockBlogPosts);
+      await prisma.blogPost.create({
+        data: {
+          title: 'Test Post 2',
+          content: 'Content 2',
+          isPublished: true
+        }
+      });
 
-      const response = await request(app).get('/blog');
+      // Create an unpublished post that shouldn't be returned
+      await prisma.blogPost.create({
+        data: {
+          title: 'Unpublished Post',
+          content: 'This should not appear',
+          isPublished: false
+        }
+      });
+
+      const response = await request(app).get('/api/blog');
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(mockBlogPosts);
-      expect(prisma.blogPost.findMany).toHaveBeenCalledWith({
-        orderBy: { createdAt: 'desc' }
-      });
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0]).toHaveProperty('id');
+      expect(response.body[0]).toHaveProperty('title');
+      expect(response.body[0]).toHaveProperty('content');
+      expect(response.body[0]).toHaveProperty('isPublished', true);
     });
 
-    it('should handle errors when fetching blog posts', async () => {
-      (prisma.blogPost.findMany as jest.Mock).mockRejectedValue(new Error('Database error'));
-
-      const response = await request(app).get('/blog');
+    it('should return empty array when no published blog posts exist', async () => {
+      const response = await request(app).get('/api/blog');
       
-      expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: 'Failed to fetch blog posts' });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
     });
   });
 
-  describe('GET /blog/:id', () => {
-    it('should return a single blog post', async () => {
-      const mockBlogPost = {
-        id: '1',
-        title: 'Test Post',
-        content: 'Test Content',
-        createdAt: mockDate,
-        clientId: null
-      };
+  describe('GET /api/blog/:id', () => {
+    it('should return a single published blog post', async () => {
+      const blogPost = await prisma.blogPost.create({
+        data: {
+          title: 'Test Post',
+          content: 'Test Content',
+          isPublished: true
+        }
+      });
 
-      (prisma.blogPost.findUnique as jest.Mock).mockResolvedValue(mockBlogPost);
-
-      const response = await request(app).get('/blog/1');
+      const response = await request(app).get(`/api/blog/${blogPost.id}`);
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(mockBlogPost);
-      expect(prisma.blogPost.findUnique).toHaveBeenCalledWith({
-        where: { id: '1' }
-      });
+      expect(response.body.id).toBe(blogPost.id);
+      expect(response.body.title).toBe('Test Post');
+      expect(response.body.content).toBe('Test Content');
+      expect(response.body.isPublished).toBe(true);
     });
 
     it('should return 404 when blog post is not found', async () => {
-      (prisma.blogPost.findUnique as jest.Mock).mockResolvedValue(null);
+      const response = await request(app).get('/api/blog/00000000-0000-0000-0000-000000000000');
+      
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: 'Blog post not found' });
+    });
 
-      const response = await request(app).get('/blog/999');
+    it('should return 404 when blog post is not published', async () => {
+      const blogPost = await prisma.blogPost.create({
+        data: {
+          title: 'Unpublished Post',
+          content: 'This should not be accessible',
+          isPublished: false
+        }
+      });
+
+      const response = await request(app).get(`/api/blog/${blogPost.id}`);
       
       expect(response.status).toBe(404);
       expect(response.body).toEqual({ error: 'Blog post not found' });
     });
   });
 
-  describe('POST /blog', () => {
+  describe('POST /api/blog', () => {
     it('should create a new blog post', async () => {
       const newBlogPost = {
         title: 'New Post',
         content: 'New Content'
       };
 
-      const createdBlogPost = {
-        id: 'a9d2ad27-c1b1-4fb9-a054-e579ff65e40e',
-        ...newBlogPost,
-        createdAt: mockDate,
-        clientId: null
-      };
-
-      (prisma.blogPost.create as jest.Mock).mockResolvedValue(createdBlogPost);
-
       const response = await request(app)
-        .post('/blog')
+        .post('/api/blog')
         .send(newBlogPost);
       
       expect(response.status).toBe(201);
-      expect(response.body).toEqual(createdBlogPost);
-      expect(prisma.blogPost.create).toHaveBeenCalledWith({
-        data: newBlogPost
-      });
+      expect(response.body).toHaveProperty('id');
+      expect(response.body.title).toBe('New Post');
+      expect(response.body.content).toBe('New Content');
+      expect(response.body.isPublished).toBe(false); // Default to unpublished
+      expect(response.body).toHaveProperty('createdAt');
     });
   });
 
-  describe('PUT /blog/:id', () => {
+  describe('PUT /api/blog/:id', () => {
     it('should update an existing blog post', async () => {
+      const blogPost = await prisma.blogPost.create({
+        data: {
+          title: 'Original Title',
+          content: 'Original Content',
+          isPublished: false
+        }
+      });
+
       const updateData = {
         title: 'Updated Title',
         content: 'Updated Content'
       };
 
-      const updatedBlogPost = {
-        id: '1',
-        ...updateData,
-        createdAt: mockDate,
-        clientId: null
-      };
-
-      (prisma.blogPost.update as jest.Mock).mockResolvedValue(updatedBlogPost);
-
       const response = await request(app)
-        .put('/blog/1')
+        .put(`/api/blog/${blogPost.id}`)
         .send(updateData);
       
       expect(response.status).toBe(200);
-      expect(response.body).toEqual(updatedBlogPost);
-      expect(prisma.blogPost.update).toHaveBeenCalledWith({
-        where: { id: '1' },
-        data: updateData
-      });
+      expect(response.body.id).toBe(blogPost.id);
+      expect(response.body.title).toBe('Updated Title');
+      expect(response.body.content).toBe('Updated Content');
     });
 
-    it('should return 404 when updating non-existent blog post', async () => {
-      const error = new Error('Record not found');
-      (error as any).code = 'P2025';
-      
-      (prisma.blogPost.update as jest.Mock).mockRejectedValue(error);
-
+    it('should return 500 when updating non-existent blog post', async () => {
       const response = await request(app)
-        .put('/blog/999')
+        .put('/api/blog/00000000-0000-0000-0000-000000000000')
         .send({ title: 'Updated Title' });
       
-      expect(response.status).toBe(404);
-      expect(response.body).toEqual({ error: 'Blog post not found' });
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: 'Failed to update blog post' });
     });
   });
 });

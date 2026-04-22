@@ -1,0 +1,143 @@
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Email configuration interface
+interface EmailConfig {
+  host: string;
+  port: number;
+  secure: boolean; // true for 465, false for other ports
+  auth: {
+    user: string;
+    pass: string;
+  };
+}
+
+// Initialize nodemailer transporter
+// In test mode, uses Ethereal.email for testing
+const createTransporter = async () => {
+  // Use Ethereal.email in test environment
+  if (process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') {
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      return nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+    } catch (error) {
+      // Offline-safe fallback for tests when Ethereal API is unreachable.
+      console.warn('Ethereal unavailable; falling back to JSON transport for tests.');
+      return nodemailer.createTransport({
+        jsonTransport: true,
+      });
+    }
+  }
+
+  // Production/development configuration
+  const emailConfig: EmailConfig = {
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
+    auth: {
+      user: process.env.SMTP_USER || '',
+      pass: process.env.SMTP_PASS || '',
+    },
+  };
+
+  return nodemailer.createTransport(emailConfig);
+};
+
+// Lazy initialization - transporter is created on first use
+let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+let transporterPromise: Promise<ReturnType<typeof nodemailer.createTransport>> | null = null;
+
+const getTransporter = async () => {
+  if (!transporter) {
+    if (!transporterPromise) {
+      transporterPromise = createTransporter();
+    }
+    transporter = await transporterPromise;
+  }
+  return transporter;
+};
+
+// Email sending function
+// If throwOnError is true, errors will be thrown (useful for verification endpoints)
+// If false (default), errors are logged but not thrown (prevents email failures from breaking the API)
+export const sendEmail = async (
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+  throwOnError: boolean = false
+): Promise<void> => {
+  try {
+    const isTestEnv = process.env.NODE_ENV === 'test';
+    const allowTestLogs = process.env.EMAIL_TEST_LOGS === 'true';
+    const shouldEmitLog = !isTestEnv || allowTestLogs;
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to)) {
+      throw new Error('Invalid recipient email address');
+    }
+
+    const from = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@example.com';
+
+    const mailOptions = {
+      from: `"${process.env.FROM_NAME || 'Business'}" <${from}>`,
+      to,
+      subject,
+      text: text || html.replace(/<[^>]*>/g, ''), // Plain text version
+      html,
+    };
+
+    const transporter = await getTransporter();
+    const info = await transporter.sendMail(mailOptions);
+
+    // In test mode with Ethereal, log the preview URL
+    if ((process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') && shouldEmitLog) {
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) {
+        console.log('Preview URL:', previewUrl);
+      } else {
+        console.log('Preview URL unavailable (offline test transport).');
+      }
+    }
+
+    if (process.env.NODE_ENV !== 'production' && shouldEmitLog) {
+      console.log('Email sent:', info.messageId);
+    }
+  } catch (error) {
+    // Always log the error
+    console.error('Error sending email:', error);
+
+    // If throwOnError is true, rethrow the error (for verification endpoints)
+    if (throwOnError) {
+      throw error;
+    }
+    // Otherwise, swallow the error - we don't want email failures to break the API
+    // In production, you might want to log to an error tracking service
+  }
+};
+
+// Verify email configuration
+export const verifyEmailConfig = async (): Promise<boolean> => {
+  try {
+    const transporter = await getTransporter();
+    await transporter.verify();
+    return true;
+  } catch (error) {
+    // Offline-safe: JSON transport does not need network verification.
+    if (process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') {
+      return true;
+    }
+    console.error('Email configuration verification failed:', error);
+    return false;
+  }
+};

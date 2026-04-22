@@ -1,3 +1,11 @@
 node_modules
 # Keep environment variables out of version control
 .env
+
+# Coverage directory
+coverage/
+coverage/*
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store

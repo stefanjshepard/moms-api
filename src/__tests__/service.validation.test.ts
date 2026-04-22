@@ -1,8 +1,12 @@
 import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Test Setup', () => {
   it('should clean up the database before each test', async () => {
@@ -36,10 +40,11 @@ describe('Service Validation', () => {
     clientId = client.id;
   });
 
-  describe('POST /api/services', () => {
+  describe('POST /api/admin/services', () => {
     it('should accept valid service data', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, clientId })
         .expect(201);
 
@@ -50,7 +55,8 @@ describe('Service Validation', () => {
 
     it('should reject invalid title', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, title: 'AB', clientId })
         .expect(400);
 
@@ -59,7 +65,8 @@ describe('Service Validation', () => {
 
     it('should reject invalid description', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, description: 'Too short', clientId })
         .expect(400);
 
@@ -68,7 +75,8 @@ describe('Service Validation', () => {
 
     it('should reject invalid price', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ ...validData, price: -10, clientId })
         .expect(400);
 
@@ -77,7 +85,8 @@ describe('Service Validation', () => {
 
     it('should reject missing required fields', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ title: 'Test Service', clientId })
         .expect(400);
 
@@ -87,7 +96,8 @@ describe('Service Validation', () => {
 
     it('should reject empty strings', async () => {
       const response = await request(app)
-        .post('/api/services')
+        .post('/api/admin/services')
+        .set('x-admin-key', ADMIN_KEY)
         .send({
           title: '',
           description: '',
@@ -98,6 +108,15 @@ describe('Service Validation', () => {
 
       expect(response.body.error).toContain('Title is required');
       expect(response.body.error).toContain('Description is required');
+    });
+
+    it('should reject unauthorized requests', async () => {
+      const response = await request(app)
+        .post('/api/admin/services')
+        .send({ ...validData, clientId })
+        .expect(401);
+
+      expect(response.body.error).toBe('Unauthorized');
     });
   });
 

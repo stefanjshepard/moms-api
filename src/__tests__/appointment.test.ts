@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../index';
 import { PrismaClient } from '@prisma/client';
 import '../__tests__/setup';
+import { getValidMstBookingDate } from './utils/scheduling';
 
 const prisma = new PrismaClient();
 
@@ -17,8 +18,8 @@ describe('Appointment Routes', () => {
     clientFirstName: 'John',
     clientLastName: 'Doe',
     email: 'john.doe@example.com',
-    phone: '123-456-7890',
-    date: new Date('2024-04-20T10:00:00Z'),
+    phone: '1234567890',
+    date: getValidMstBookingDate(),
   };
 
   let createdServiceId: string;
@@ -47,6 +48,12 @@ describe('Appointment Routes', () => {
       expect(response.body.email).toBe(testAppointment.email);
       expect(response.body.serviceId).toBe(createdServiceId);
       expect(response.body.states).toBe('pending'); // Initial state before payment
+      expect(response.body.timezone).toBe('MST');
+
+      const reminders = await prisma.reminderJob.findMany({
+        where: { appointmentId: response.body.id },
+      });
+      expect(reminders.length).toBeGreaterThan(0);
     });
 
     it('should return 400 if required fields are missing', async () => {
@@ -66,11 +73,35 @@ describe('Appointment Routes', () => {
         .post('/api/appointments')
         .send({
           ...testAppointment,
-          serviceId: 'non-existent-service-id',
-        })
-        .expect(404);
+          serviceId: '00000000-0000-0000-0000-000000000000', // Valid UUID format but non-existent
+        });
 
+      expect(response.status).toBe(404);
       expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject conflicting appointments with 409', async () => {
+      const slot = getValidMstBookingDate();
+      await request(app)
+        .post('/api/appointments')
+        .send({
+          ...testAppointment,
+          date: slot,
+          serviceId: createdServiceId,
+        })
+        .expect(201);
+
+      const conflictResponse = await request(app)
+        .post('/api/appointments')
+        .send({
+          ...testAppointment,
+          email: 'conflict@example.com',
+          date: slot,
+          serviceId: createdServiceId,
+        })
+        .expect(409);
+
+      expect(conflictResponse.body.error).toContain('conflicts with an existing appointment');
     });
   });
 
@@ -92,6 +123,53 @@ describe('Appointment Routes', () => {
       expect(response.body.length).toBeGreaterThan(0);
       expect(response.body[0]).toHaveProperty('id');
       expect(response.body[0]).toHaveProperty('clientFirstName');
+    });
+
+    it('should filter appointments by date range', async () => {
+      const firstDate = getValidMstBookingDate();
+      const secondDate = getValidMstBookingDate(11, 3);
+
+      await prisma.appointment.create({
+        data: {
+          ...testAppointment,
+          date: firstDate,
+          serviceId: createdServiceId,
+        },
+      });
+      await prisma.appointment.create({
+        data: {
+          ...testAppointment,
+          email: 'second@example.com',
+          date: secondDate,
+          serviceId: createdServiceId,
+        },
+      });
+
+      const response = await request(app)
+        .get('/api/appointments')
+        .query({
+          dateFrom: firstDate.toISOString(),
+          dateTo: new Date(firstDate.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+        })
+        .expect(200);
+
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].email).toBe(testAppointment.email);
+    });
+  });
+
+  describe('GET /api/appointments/available', () => {
+    it('should return available slots for a service and date', async () => {
+      const slotDate = getValidMstBookingDate();
+      const datePart = slotDate.toISOString().slice(0, 10);
+
+      const response = await request(app)
+        .get('/api/appointments/available')
+        .query({ serviceId: createdServiceId, date: datePart })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('slots');
+      expect(Array.isArray(response.body.slots)).toBe(true);
     });
   });
 
@@ -136,8 +214,8 @@ describe('Appointment Routes', () => {
         clientFirstName: 'Jane',
         clientLastName: 'Smith',
         email: 'jane.smith@example.com',
-        phone: '987-654-3210',
-        date: new Date('2024-04-21T14:00:00Z'),
+        phone: '9876543210',
+        date: getValidMstBookingDate(11, 2),
       };
 
       const response = await request(app)
@@ -163,7 +241,7 @@ describe('Appointment Routes', () => {
       const response = await request(app)
         .put(`/api/appointments/${createdAppointment.id}/confirm`)
         .send({
-          paymentId: 'test_payment_id',
+          appointmentId: createdAppointment.id,
           paymentStatus: 'completed',
         })
         .expect(200);
@@ -192,6 +270,22 @@ describe('Appointment Routes', () => {
       });
 
       expect(deletedAppointment).toBeNull();
+    });
+
+    it('should reject cancellation when appointment is less than 24 hours away', async () => {
+      const soonAppointment = await prisma.appointment.create({
+        data: {
+          ...testAppointment,
+          date: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          serviceId: createdServiceId,
+        },
+      });
+
+      const response = await request(app)
+        .delete(`/api/appointments/${soonAppointment.id}`)
+        .expect(400);
+
+      expect(response.body.error).toContain('cancelled at least 24 hours in advance');
     });
   });
 }); 

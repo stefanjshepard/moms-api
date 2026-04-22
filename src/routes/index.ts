@@ -8,6 +8,7 @@ import testimonialRouter from './testimonial.routes';
 import blogPostRouter from './blogPost.routes';
 import { adminAuth } from '../middleware/auth';
 import contactRouter from "./contact.routes";
+import emailRouter from "./email.routes";
 
 const router = express.Router();
 
@@ -19,9 +20,10 @@ router.use('/blog', blogPostRouter);
 router.use('/contact', contactRouter);
 
 // Admin routes (require admin authentication)
-router.use('/admin/client', adminAuth, clientRouter);
+router.use('/admin/clients', adminAuth, clientRouter);
 router.use('/admin/services', adminAuth, serviceRouter);
 router.use('/admin/testimonials', adminAuth, testimonialRouter);
-router.use('/admin/blog', adminAuth, blogPostRouter);
+router.use('/admin/blog-posts', adminAuth, blogPostRouter);
+router.use('/admin/email', emailRouter);
 
 export default router;
