@@ -78,6 +78,10 @@ export const sendEmail = async (
   throwOnError: boolean = false
 ): Promise<void> => {
   try {
+    const isTestEnv = process.env.NODE_ENV === 'test';
+    const allowTestLogs = process.env.EMAIL_TEST_LOGS === 'true';
+    const shouldEmitLog = !isTestEnv || allowTestLogs;
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(to)) {
       throw new Error('Invalid recipient email address');
@@ -97,7 +101,7 @@ export const sendEmail = async (
     const info = await transporter.sendMail(mailOptions);
 
     // In test mode with Ethereal, log the preview URL
-    if (process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') {
+    if ((process.env.NODE_ENV === 'test' || process.env.USE_ETHEREAL === 'true') && shouldEmitLog) {
       const previewUrl = nodemailer.getTestMessageUrl(info);
       if (previewUrl) {
         console.log('Preview URL:', previewUrl);
@@ -106,7 +110,7 @@ export const sendEmail = async (
       }
     }
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV !== 'production' && shouldEmitLog) {
       console.log('Email sent:', info.messageId);
     }
   } catch (error) {

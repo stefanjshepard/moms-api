@@ -5,3 +5,7 @@ node_modules
 # Coverage directory
 coverage/
 coverage/*
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store

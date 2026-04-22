@@ -318,6 +318,8 @@ describe('Email Service with Ethereal.email', () => {
     it('should provide preview URL for sent emails in test mode', async () => {
       // This test verifies that Ethereal preview URLs are generated
       // The actual URL is logged to console in test mode
+      const originalEmailTestLogs = process.env.EMAIL_TEST_LOGS;
+      process.env.EMAIL_TEST_LOGS = 'true';
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       await sendEmail('test@example.com', 'Preview Test', '<p>Test</p>');
@@ -331,6 +333,11 @@ describe('Email Service with Ethereal.email', () => {
       );
 
       consoleLogSpy.mockRestore();
+      if (originalEmailTestLogs === undefined) {
+        delete process.env.EMAIL_TEST_LOGS;
+      } else {
+        process.env.EMAIL_TEST_LOGS = originalEmailTestLogs;
+      }
 
       // In online mode we get a preview URL; in offline mode we get a fallback signal.
       expect(hasPreviewSignal).toBe(true);
