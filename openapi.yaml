@@ -20,6 +20,10 @@ tags:
   - name: Admin Testimonials
   - name: Admin Blog
   - name: Admin Email
+  - name: OAuth
+  - name: Integrations
+  - name: Payments
+  - name: Webhooks
 
 paths:
   /:
@@ -233,6 +237,7 @@ paths:
     put:
       tags: [Appointments]
       summary: Confirm appointment after payment
+      description: Requires server-trusted source outside test mode.
       operationId: confirmAppointment
       parameters:
         - $ref: "#/components/parameters/IdPath"
@@ -251,6 +256,236 @@ paths:
                 $ref: "#/components/schemas/Appointment"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Unauthorized payment confirmation source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /payments/intuit/checkout-session:
+    post:
+      tags: [Payments]
+      summary: Create Intuit checkout session for appointment
+      operationId: createIntuitCheckoutSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntuitCheckoutSessionRequest"
+      responses:
+        "201":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntuitCheckoutSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Appointment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /webhooks/intuit:
+    post:
+      tags: [Webhooks]
+      summary: Process Intuit payment webhook
+      operationId: processIntuitWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntuitWebhookProcessResponse"
+        "401":
+          description: Unauthorized webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /oauth/{provider}/authorize:
+    post:
+      tags: [OAuth]
+      summary: Create OAuth authorization URL for provider
+      operationId: createOAuthAuthorizationUrl
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthAuthorizeRequest"
+      responses:
+        "200":
+          description: Authorization URL created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthAuthorizeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /oauth/callback/{provider}:
+    get:
+      tags: [OAuth]
+      summary: OAuth callback endpoint
+      operationId: oauthCallback
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OAuth callback processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthCallbackResponse"
+        "302":
+          description: Redirected to configured frontend path
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /oauth/{provider}/status:
+    get:
+      tags: [OAuth]
+      summary: Get OAuth provider connection status
+      operationId: getOAuthProviderStatus
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+        - in: query
+          name: ownerKey
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OAuth connection status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /oauth/{provider}/connection:
+    delete:
+      tags: [OAuth]
+      summary: Disconnect OAuth provider connection
+      operationId: disconnectOAuthProvider
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+        - in: query
+          name: ownerKey
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Provider disconnected
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/integrations/{provider}/status:
+    get:
+      tags: [Integrations]
+      summary: Admin integration status diagnostics
+      operationId: adminGetIntegrationStatus
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+        - in: query
+          name: ownerKey
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Integration status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/integrations/{provider}/refresh:
+    post:
+      tags: [Integrations]
+      summary: Force refresh integration access token
+      operationId: adminRefreshIntegrationToken
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ownerKey:
+                  type: string
+      responses:
+        "200":
+          description: Integration refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationRefreshResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -1040,6 +1275,14 @@ components:
       schema:
         type: string
       description: Resource identifier
+    ProviderPath:
+      in: path
+      name: provider
+      required: true
+      schema:
+        type: string
+        enum: [google_calendar, intuit]
+      description: OAuth/integration provider identifier
 
   responses:
     BadRequest:
@@ -1192,6 +1435,12 @@ components:
         tipAmount:
           type: number
           nullable: true
+        paymentProvider:
+          type: string
+          nullable: true
+        paymentExternalId:
+          type: string
+          nullable: true
         calendarEventId:
           type: string
           nullable: true
@@ -1282,6 +1531,125 @@ components:
         paymentStatus:
           type: string
           enum: [completed, pending, failed]
+
+    OAuthAuthorizeRequest:
+      type: object
+      properties:
+        redirectPath:
+          type: string
+        ownerKey:
+          type: string
+        clientId:
+          type: string
+          format: uuid
+
+    OAuthAuthorizeResponse:
+      type: object
+      properties:
+        state:
+          type: string
+        authorizationUrl:
+          type: string
+          format: uri
+      required: [state, authorizationUrl]
+
+    OAuthCallbackResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: connected
+        provider:
+          type: string
+        ownerKey:
+          type: string
+      required: [status, provider, ownerKey]
+
+    IntegrationStatusResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        ownerKey:
+          type: string
+        connected:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        scopes:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required: [provider, ownerKey, connected, scopes]
+
+    IntegrationRefreshResponse:
+      allOf:
+        - $ref: "#/components/schemas/IntegrationStatusResponse"
+        - type: object
+          properties:
+            refreshed:
+              type: boolean
+            accessTokenAvailable:
+              type: boolean
+          required: [refreshed, accessTokenAvailable]
+
+    IntuitCheckoutSessionRequest:
+      type: object
+      required: [appointmentId]
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+        tipAmount:
+          type: number
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: USD
+
+    IntuitCheckoutSessionResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: intuit
+        externalPaymentId:
+          type: string
+        checkoutUrl:
+          type: string
+          format: uri
+        amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+      required: [provider, externalPaymentId, checkoutUrl, amount, currency, status]
+
+    IntuitWebhookProcessResponse:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+        duplicate:
+          type: boolean
+        eventId:
+          type: string
+        status:
+          type: string
+      required: [accepted, duplicate, eventId, status]
 
     AvailabilitySlotsResponse:
       type: object

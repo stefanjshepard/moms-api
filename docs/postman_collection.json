@@ -13,7 +13,11 @@
     { "key": "clientId", "value": "" },
     { "key": "blogPostId", "value": "" },
     { "key": "testimonialId", "value": "" },
-    { "key": "contactId", "value": "" }
+    { "key": "contactId", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "ownerKey", "value": "global" },
+    { "key": "paymentConfirmationSecret", "value": "" },
+    { "key": "intuitWebhookSecret", "value": "" }
   ],
   "item": [
     {
@@ -123,7 +127,10 @@
           "name": "PUT /appointments/:id/confirm",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-payment-confirmation-secret", "value": "{{paymentConfirmationSecret}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"appointmentId\": \"{{appointmentId}}\",\n  \"paymentStatus\": \"completed\"\n}"
@@ -433,6 +440,114 @@
             "method": "POST",
             "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
             "url": { "raw": "{{baseUrl}}/admin/email/reminders/dispatch", "host": ["{{baseUrl}}"], "path": ["admin", "email", "reminders", "dispatch"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "OAuth + Integrations",
+      "item": [
+        {
+          "name": "POST /oauth/google_calendar/authorize",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"redirectPath\": \"/settings/integrations\",\n  \"ownerKey\": \"{{ownerKey}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/oauth/google_calendar/authorize", "host": ["{{baseUrl}}"], "path": ["oauth", "google_calendar", "authorize"] }
+          }
+        },
+        {
+          "name": "POST /oauth/intuit/authorize",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"redirectPath\": \"/settings/integrations\",\n  \"ownerKey\": \"{{ownerKey}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/oauth/intuit/authorize", "host": ["{{baseUrl}}"], "path": ["oauth", "intuit", "authorize"] }
+          }
+        },
+        {
+          "name": "GET /oauth/intuit/status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/oauth/intuit/status?ownerKey={{ownerKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["oauth", "intuit", "status"],
+              "query": [{ "key": "ownerKey", "value": "{{ownerKey}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET /admin/integrations/intuit/status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-admin-key", "value": "{{adminKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/integrations/intuit/status?ownerKey={{ownerKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "integrations", "intuit", "status"],
+              "query": [{ "key": "ownerKey", "value": "{{ownerKey}}" }]
+            }
+          }
+        },
+        {
+          "name": "POST /admin/integrations/intuit/refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-key", "value": "{{adminKey}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerKey\": \"{{ownerKey}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/integrations/intuit/refresh", "host": ["{{baseUrl}}"], "path": ["admin", "integrations", "intuit", "refresh"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments + Webhooks",
+      "item": [
+        {
+          "name": "POST /payments/intuit/checkout-session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"appointmentId\": \"{{appointmentId}}\",\n  \"tipAmount\": 15,\n  \"currency\": \"USD\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/payments/intuit/checkout-session", "host": ["{{baseUrl}}"], "path": ["payments", "intuit", "checkout-session"] }
+          }
+        },
+        {
+          "name": "POST /webhooks/intuit",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-intuit-webhook-secret", "value": "{{intuitWebhookSecret}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"evt-001\",\n  \"eventType\": \"payment.succeeded\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"appointmentId\": \"{{appointmentId}}\",\n  \"metadata\": {\n    \"appointmentId\": \"{{appointmentId}}\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/webhooks/intuit", "host": ["{{baseUrl}}"], "path": ["webhooks", "intuit"] }
           }
         }
       ]

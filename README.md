@@ -67,6 +67,27 @@ New admin diagnostics endpoints:
 - `GET /api/admin/integrations/intuit/status`
 - `POST /api/admin/integrations/intuit/refresh`
 
+## Intuit Payments + Webhooks (v1)
+
+```env
+# payment checkout mode: mock (default) or live
+INTUIT_PAYMENT_MODE=mock
+
+# optional checkout redirect base (mock/demo)
+INTUIT_CHECKOUT_BASE_URL=https://sandbox.intuit.com/mock-checkout
+
+# webhook shared secret (optional but recommended)
+INTUIT_WEBHOOK_SECRET=replace-me
+
+# server-side appointment confirmation secret (for /appointments/:id/confirm)
+PAYMENT_CONFIRMATION_SECRET=replace-me
+```
+
+Payment endpoints:
+
+- `POST /api/payments/intuit/checkout-session`
+- `POST /api/webhooks/intuit`
+
 ## Test Commands
 
 ```bash
