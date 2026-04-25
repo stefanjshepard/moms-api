@@ -24,6 +24,7 @@ model Client {
   blogPosts    BlogPost[]
   availabilityRules      AvailabilityRule[]
   availabilityExceptions AvailabilityException[]
+  integrationConnections IntegrationConnection[]
 }
 
 model Service {
@@ -123,4 +124,50 @@ model ReminderJob {
 
   @@index([sendAt, status])
   @@index([appointmentId, reminderType])
+}
+
+model IntegrationConnection {
+  id                   String   @id @default(uuid())
+  provider             String
+  ownerKey             String   @default("global")
+  externalAccountId    String?
+  clientId             String?
+  accessTokenEncrypted String?
+  refreshTokenEncrypted String
+  tokenExpiresAt       DateTime?
+  scopes               String[]
+  metadata             Json?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, ownerKey])
+  @@index([provider, isActive])
+}
+
+model OAuthState {
+  id           String   @id @default(uuid())
+  provider     String
+  state        String   @unique
+  codeVerifier String?
+  redirectPath String?
+  clientId     String?
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model IntegrationWebhookEvent {
+  id              String   @id @default(uuid())
+  provider        String
+  eventExternalId String
+  eventType       String?
+  payload         Json?
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  @@unique([provider, eventExternalId])
+  @@index([provider, createdAt])
 }

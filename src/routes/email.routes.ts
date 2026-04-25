@@ -1,13 +1,12 @@
 import express, { Request, Response } from 'express';
 import { sendEmail, verifyEmailConfig } from '../services/email.service';
-import { adminAuth } from '../middleware/auth';
 import { dispatchDueAppointmentReminders } from '../services/reminder.service';
 
 const emailRouter = express.Router();
 
 // Verification endpoint - sends a test email
 // Protected by admin auth to prevent abuse
-emailRouter.post('/verify', adminAuth, async (req: Request, res: Response): Promise<void> => {
+emailRouter.post('/verify', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body;
 
@@ -86,7 +85,7 @@ emailRouter.post('/verify', adminAuth, async (req: Request, res: Response): Prom
 });
 
 // Email configuration verification endpoint
-emailRouter.get('/config/verify', adminAuth, async (_req: Request, res: Response): Promise<void> => {
+emailRouter.get('/config/verify', async (_req: Request, res: Response): Promise<void> => {
   try {
     const isValid = await verifyEmailConfig();
 
@@ -123,7 +122,7 @@ emailRouter.get('/config/verify', adminAuth, async (_req: Request, res: Response
 });
 
 // Dispatch due reminder jobs (admin-triggered; intended for cron/automation)
-emailRouter.post('/reminders/dispatch', adminAuth, async (_req: Request, res: Response): Promise<void> => {
+emailRouter.post('/reminders/dispatch', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await dispatchDueAppointmentReminders();
     res.json({

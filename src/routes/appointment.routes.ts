@@ -26,6 +26,7 @@ import {
 } from '../services/scheduling.service';
 import { scheduleAppointmentReminder, cancelAppointmentReminders } from '../services/reminder.service';
 import { buildGoogleCalendarEventPayload } from '../services/calendar.service';
+import { appointmentLimiter } from '../middleware/rateLimit';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -79,7 +80,7 @@ const hasSchedulingConflict = async (
 };
 
 // Create a new appointment
-appointmentRouter.post('/', validateAppointment, async (req: Request, res: Response) => {
+appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req: Request, res: Response) => {
   try {
     const {
       clientFirstName,
