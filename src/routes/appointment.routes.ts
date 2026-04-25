@@ -36,7 +36,10 @@ const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
 const CANCELLATION_RESCHEDULE_HOURS = 24;
 const hasValidServerPaymentConfirmationAuth = (req: Request): boolean => {
-  if (process.env.NODE_ENV === 'test') {
+  if (
+    process.env.NODE_ENV === 'test' &&
+    process.env.PAYMENT_CONFIRMATION_ENFORCE_IN_TEST !== 'true'
+  ) {
     return true;
   }
 
@@ -554,6 +557,23 @@ appointmentRouter.put('/:id/confirm', validateAppointmentConfirmation, async (re
     const { paymentStatus } = req.body;
     if (paymentStatus !== 'completed') {
       res.status(400).json({ error: 'Invalid payment status' });
+      return;
+    }
+
+    const existingAppointment = await prisma.appointment.findUnique({
+      where: { id: req.params.id },
+      include: { service: true },
+    });
+    if (!existingAppointment) {
+      res.status(404).json({ error: 'Appointment not found' });
+      return;
+    }
+
+    const alreadyConfirmedAndPaid =
+      existingAppointment.states === 'confirmed' && existingAppointment.paymentStatus === 'paid';
+
+    if (alreadyConfirmedAndPaid) {
+      res.json(existingAppointment);
       return;
     }
 

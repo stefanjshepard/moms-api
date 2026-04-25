@@ -71,6 +71,19 @@ interface AppointmentReminderData {
   appointmentId: string;
 }
 
+interface AppointmentPaymentReceiptToOwnerData {
+  customerFirstName: string;
+  customerLastName: string;
+  customerEmail: string;
+  customerPhone?: string | null;
+  serviceTitle: string;
+  date: Date;
+  appointmentId: string;
+  paymentExternalId: string;
+  amountPaid: number;
+  currency: string;
+}
+
 // Appointment Confirmation Email (when appointment is created)
 export const appointmentConfirmationTemplate = (data: AppointmentData): string => {
   const formattedDate = new Date(data.date).toLocaleString('en-US', {
@@ -575,6 +588,69 @@ export const appointmentReminderToOwnerTemplate = (data: AppointmentNotification
             <p><strong>Email:</strong> <a href="mailto:${escapeHtml(data.customerEmail)}">${escapeHtml(data.customerEmail)}</a></p>
             ${phoneLine}
             <p><strong>Appointment ID:</strong> ${escapeHtml(data.appointmentId)}</p>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated message from your booking system.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+// Payment receipt notification (to business owner after successful payment webhook)
+export const appointmentPaymentReceiptToOwnerTemplate = (
+  data: AppointmentPaymentReceiptToOwnerData
+): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const fullName = `${escapeHtml(data.customerFirstName)} ${escapeHtml(data.customerLastName)}`.trim();
+  const phoneLine = data.customerPhone
+    ? `<p><strong>Phone:</strong> <a href="tel:${escapeHtml(data.customerPhone)}">${escapeHtml(data.customerPhone)}</a></p>`
+    : '<p><strong>Phone:</strong> Not provided</p>';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #2d9cdb; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2d9cdb; }
+        .contact-box { margin-top: 12px; padding: 12px; background-color: #eff8ff; border-radius: 6px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Payment Received</h1>
+        </div>
+        <div class="content">
+          <p>A payment has been successfully received for an appointment.</p>
+          <div class="details">
+            <h3>Payment details</h3>
+            <p><strong>Amount:</strong> ${escapeHtml(data.currency)} ${escapeHtml(data.amountPaid.toFixed(2))}</p>
+            <p><strong>Payment ID:</strong> ${escapeHtml(data.paymentExternalId)}</p>
+            <p><strong>Appointment ID:</strong> ${escapeHtml(data.appointmentId)}</p>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Appointment Date & Time:</strong> ${formattedDate}</p>
+            <h3 style="margin-top: 16px;">Client contact information</h3>
+            <div class="contact-box">
+              <p><strong>Name:</strong> ${fullName}</p>
+              <p><strong>Email:</strong> <a href="mailto:${escapeHtml(data.customerEmail)}">${escapeHtml(data.customerEmail)}</a></p>
+              ${phoneLine}
+            </div>
           </div>
         </div>
         <div class="footer">

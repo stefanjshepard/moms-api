@@ -13,6 +13,7 @@ import { xss } from 'express-xss-sanitizer';
 import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import { errorHandler } from './middleware/errorHandler';
+import { startReminderDispatchScheduler, stopReminderDispatchScheduler } from './jobs/reminder.dispatcher';
 
 // Loading env files from .env
 dotenv.config();
@@ -100,17 +101,20 @@ app.use(errorHandler as ErrorRequestHandler);
 
 // Graceful Shutdown for Prisma
 process.on("SIGINT", async () => {
+  stopReminderDispatchScheduler();
   await prisma.$disconnect();
   process.exit();
 });
 
 process.on("SIGTERM", async () => {
+  stopReminderDispatchScheduler();
   await prisma.$disconnect();
   process.exit();
 });
 
 // Start express server only in non-test environment
 if (process.env.NODE_ENV !== 'test') {
+  startReminderDispatchScheduler();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
