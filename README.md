@@ -24,6 +24,32 @@ Server defaults:
 - App URL: `http://localhost:5001`
 - API base: `http://localhost:5001/api`
 
+## Google Calendar Sync (Optional)
+
+Set these environment variables to enable real Google Calendar event sync for appointment create/update/delete flows:
+
+```env
+GOOGLE_CALENDAR_SYNC_ENABLED=true
+GOOGLE_CALENDAR_ID=primary
+GOOGLE_CALENDAR_AUTH_MODE=oauth
+
+# Required for OAuth mode:
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/google_calendar
+# Optional override:
+# GOOGLE_OAUTH_SCOPES=https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email
+
+# Optional service-account fallback:
+# GOOGLE_CALENDAR_ALLOW_SERVICE_ACCOUNT_FALLBACK=true
+# GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=...
+
+# Alternate service-account formats:
+# GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+# GOOGLE_SERVICE_ACCOUNT_EMAIL=...
+# GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
 ## Test Commands
 
 ```bash
