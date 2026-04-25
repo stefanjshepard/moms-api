@@ -11,6 +11,8 @@ import contactRouter from "./contact.routes";
 import emailRouter from "./email.routes";
 import oauthRouter from './oauth.routes';
 import integrationRouter from './integration.routes';
+import paymentRouter from './payment.routes';
+import webhookRouter from './webhook.routes';
 
 const router = express.Router();
 
@@ -21,6 +23,8 @@ router.use('/testimonials', testimonialRouter);
 router.use('/blog', blogPostRouter);
 router.use('/contact', contactRouter);
 router.use('/oauth', oauthRouter);
+router.use('/payments', paymentRouter);
+router.use('/webhooks', webhookRouter);
 
 // Admin routes (require admin authentication)
 router.use('/admin/clients', adminAuth, clientRouter);
