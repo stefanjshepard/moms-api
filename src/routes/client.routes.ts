@@ -1,13 +1,12 @@
 import express, { Request, Response, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { validateClient } from '../validations/client.validation';
-import { adminAuth } from '../middleware/auth';
 
 const clientRouter: Router = express.Router();
 const prisma = new PrismaClient();
 
 // Get all clients (admin)
-clientRouter.get('/', adminAuth, async (_req: Request, res: Response): Promise<void> => {
+clientRouter.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     const clients = await prisma.client.findMany();
     res.json(clients);
@@ -17,7 +16,7 @@ clientRouter.get('/', adminAuth, async (_req: Request, res: Response): Promise<v
 });
 
 // Get client by ID (admin)
-clientRouter.get('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
+clientRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const client = await prisma.client.findUnique({
       where: { id: req.params.id }
@@ -33,7 +32,7 @@ clientRouter.get('/:id', adminAuth, async (req: Request, res: Response): Promise
 });
 
 // Create new client (admin)
-clientRouter.post('/', adminAuth, validateClient, async (req: Request, res: Response): Promise<void> => {
+clientRouter.post('/', validateClient, async (req: Request, res: Response): Promise<void> => {
   try {
     const client = await prisma.client.create({
       data: req.body
@@ -45,7 +44,7 @@ clientRouter.post('/', adminAuth, validateClient, async (req: Request, res: Resp
 });
 
 // Update client (admin)
-clientRouter.put('/:id', adminAuth, validateClient, async (req: Request, res: Response): Promise<void> => {
+clientRouter.put('/:id', validateClient, async (req: Request, res: Response): Promise<void> => {
   try {
     const client = await prisma.client.update({
       where: { id: req.params.id },
@@ -58,7 +57,7 @@ clientRouter.put('/:id', adminAuth, validateClient, async (req: Request, res: Re
 });
 
 // Delete client (admin)
-clientRouter.delete('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
+clientRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     await prisma.client.delete({
       where: { id: req.params.id }
