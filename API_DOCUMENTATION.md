@@ -403,6 +403,28 @@ Supported providers:
 
 - `google_calendar`
 - `intuit`
+
+## 14) Intuit Payment Flow (v1)
+
+Checkout creation:
+
+- `POST /api/payments/intuit/checkout-session`
+- creates a `PaymentTransaction` with `pending` status
+- stores `paymentProvider=intuit` and `paymentExternalId` on the appointment
+
+Webhook processing:
+
+- `POST /api/webhooks/intuit`
+- optional shared-secret protection via `INTUIT_WEBHOOK_SECRET` and `x-intuit-webhook-secret` header
+- deduplicates events with `IntegrationWebhookEvent` (`provider + eventExternalId`)
+- on succeeded events, marks appointment as paid/confirmed and updates related payment transaction records
+
+Server-trusted confirmation:
+
+- `PUT /api/appointments/:id/confirm` is hardened for non-test environments
+- requires one of:
+  - valid `x-admin-key`, or
+  - valid `x-payment-confirmation-secret` matching `PAYMENT_CONFIRMATION_SECRET`
 - Prisma schema + seed:
   - `prisma/schema.prisma`
   - `prisma/seed.ts`

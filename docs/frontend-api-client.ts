@@ -40,7 +40,18 @@ export interface Appointment {
   paymentStatus?: string;
   paymentMethod?: string | null;
   tipAmount?: number | null;
+  paymentProvider?: string | null;
+  paymentExternalId?: string | null;
   service?: Service;
+}
+
+export interface CheckoutSession {
+  provider: string;
+  externalPaymentId: string;
+  checkoutUrl: string;
+  amount: number;
+  currency: string;
+  status: string;
 }
 
 export interface ContactRequest {
@@ -132,7 +143,8 @@ export class MomsWebsiteApiClient {
     path: string,
     method: HttpMethod = 'GET',
     body?: unknown,
-    requiresAdmin: boolean = false
+    requiresAdmin: boolean = false,
+    extraHeaders?: Record<string, string>
   ): Promise<T> {
     const headers: Record<string, string> = {};
     if (body !== undefined) {
@@ -143,6 +155,9 @@ export class MomsWebsiteApiClient {
         throw new ApiError(401, 'Admin key is required for this endpoint');
       }
       headers['x-admin-key'] = this.adminKey;
+    }
+    if (extraHeaders) {
+      Object.assign(headers, extraHeaders);
     }
 
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -204,11 +219,15 @@ export class MomsWebsiteApiClient {
     return this.request(`/appointments/${appointmentId}`, 'PUT', input);
   }
 
-  confirmAppointment(appointmentId: string): Promise<Appointment> {
+  confirmAppointment(appointmentId: string, paymentConfirmationSecret?: string): Promise<Appointment> {
+    const headers =
+      paymentConfirmationSecret && paymentConfirmationSecret.trim()
+        ? { 'x-payment-confirmation-secret': paymentConfirmationSecret }
+        : undefined;
     return this.request(`/appointments/${appointmentId}/confirm`, 'PUT', {
       appointmentId,
       paymentStatus: 'completed',
-    });
+    }, false, headers);
   }
 
   deleteAppointment(appointmentId: string): Promise<void> {
@@ -343,6 +362,60 @@ export class MomsWebsiteApiClient {
 
   adminDispatchReminderJobs(): Promise<{ status: string; message: string; processed: number; sent: number; failed: number }> {
     return this.request('/admin/email/reminders/dispatch', 'POST', undefined, true);
+  }
+
+  // OAuth + integration diagnostics
+  adminCreateOAuthAuthorization(provider: 'google_calendar' | 'intuit', input?: { ownerKey?: string; redirectPath?: string; clientId?: string }): Promise<{ state: string; authorizationUrl: string }> {
+    return this.request(`/oauth/${provider}/authorize`, 'POST', input ?? {}, true);
+  }
+
+  adminGetOAuthStatus(provider: 'google_calendar' | 'intuit', ownerKey?: string): Promise<{
+    provider: string;
+    ownerKey: string;
+    connected: boolean;
+    expiresAt: string | null;
+    scopes: string[];
+    updatedAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }> {
+    const params = new URLSearchParams();
+    if (ownerKey) params.set('ownerKey', ownerKey);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/oauth/${provider}/status${suffix}`, 'GET', undefined, true);
+  }
+
+  adminGetIntegrationStatus(provider: 'google_calendar' | 'intuit', ownerKey?: string): Promise<{
+    provider: string;
+    ownerKey: string;
+    connected: boolean;
+    expiresAt: string | null;
+    scopes: string[];
+    updatedAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }> {
+    const params = new URLSearchParams();
+    if (ownerKey) params.set('ownerKey', ownerKey);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/admin/integrations/${provider}/status${suffix}`, 'GET', undefined, true);
+  }
+
+  adminRefreshIntegration(provider: 'google_calendar' | 'intuit', ownerKey?: string): Promise<{
+    provider: string;
+    ownerKey: string;
+    refreshed: boolean;
+    accessTokenAvailable: boolean;
+    connected: boolean;
+    expiresAt: string | null;
+    scopes: string[];
+    updatedAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }> {
+    return this.request(`/admin/integrations/${provider}/refresh`, 'POST', ownerKey ? { ownerKey } : {}, true);
+  }
+
+  // Payments
+  createIntuitCheckoutSession(input: { appointmentId: string; tipAmount?: number; currency?: string }): Promise<CheckoutSession> {
+    return this.request('/payments/intuit/checkout-session', 'POST', input);
   }
 }
 
