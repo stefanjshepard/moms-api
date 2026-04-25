@@ -80,6 +80,11 @@ const getTokenExpiryDate = (seconds?: number): Date | null => {
   return new Date(Date.now() + seconds * 1000);
 };
 
+const isMissingIntegrationTableError = (error: any): boolean =>
+  error?.code === 'P2021' &&
+  typeof error?.meta?.table === 'string' &&
+  error.meta.table.includes('IntegrationConnection');
+
 export const createOAuthAuthorization = async (
   provider: OAuthProvider,
   options?: { ownerKey?: string; clientId?: string; redirectPath?: string }
@@ -206,9 +211,17 @@ export const getAccessTokenForProvider = async (
   provider: OAuthProvider,
   ownerKey: string = DEFAULT_OWNER_KEY
 ): Promise<string | null> => {
-  const connection = await prisma.integrationConnection.findUnique({
-    where: { provider_ownerKey: { provider, ownerKey } },
-  });
+  let connection;
+  try {
+    connection = await prisma.integrationConnection.findUnique({
+      where: { provider_ownerKey: { provider, ownerKey } },
+    });
+  } catch (error: any) {
+    if (isMissingIntegrationTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
 
   if (!connection || !connection.isActive) {
     return null;
@@ -248,12 +261,26 @@ export const getAccessTokenForProvider = async (
 export const getOAuthConnectionStatus = async (
   provider: OAuthProvider,
   ownerKey: string = DEFAULT_OWNER_KEY
-): Promise<{ connected: boolean; expiresAt: string | null; scopes: string[]; updatedAt: string | null }> => {
-  const connection = await prisma.integrationConnection.findUnique({
-    where: { provider_ownerKey: { provider, ownerKey } },
-  });
+): Promise<{
+  connected: boolean;
+  expiresAt: string | null;
+  scopes: string[];
+  updatedAt: string | null;
+  metadata: Record<string, unknown> | null;
+}> => {
+  let connection;
+  try {
+    connection = await prisma.integrationConnection.findUnique({
+      where: { provider_ownerKey: { provider, ownerKey } },
+    });
+  } catch (error: any) {
+    if (isMissingIntegrationTableError(error)) {
+      return { connected: false, expiresAt: null, scopes: [], updatedAt: null, metadata: null };
+    }
+    throw error;
+  }
   if (!connection || !connection.isActive) {
-    return { connected: false, expiresAt: null, scopes: [], updatedAt: null };
+    return { connected: false, expiresAt: null, scopes: [], updatedAt: null, metadata: null };
   }
 
   return {
@@ -261,6 +288,7 @@ export const getOAuthConnectionStatus = async (
     expiresAt: connection.tokenExpiresAt?.toISOString() ?? null,
     scopes: connection.scopes,
     updatedAt: connection.updatedAt.toISOString(),
+    metadata: (connection.metadata as Record<string, unknown> | null) ?? null,
   };
 };
 
@@ -268,14 +296,32 @@ export const disconnectOAuthProvider = async (
   provider: OAuthProvider,
   ownerKey: string = DEFAULT_OWNER_KEY
 ): Promise<void> => {
-  await prisma.integrationConnection.updateMany({
-    where: { provider, ownerKey },
-    data: {
-      isActive: false,
-      accessTokenEncrypted: null,
-      refreshTokenEncrypted: encryptSecret(crypto.randomUUID()),
-      tokenExpiresAt: null,
-      metadata: Prisma.JsonNull,
-    },
-  });
+  try {
+    await prisma.integrationConnection.updateMany({
+      where: { provider, ownerKey },
+      data: {
+        isActive: false,
+        accessTokenEncrypted: null,
+        refreshTokenEncrypted: encryptSecret(crypto.randomUUID()),
+        tokenExpiresAt: null,
+        metadata: Prisma.JsonNull,
+      },
+    });
+  } catch (error: any) {
+    if (isMissingIntegrationTableError(error)) {
+      return;
+    }
+    throw error;
+  }
+};
+
+export const refreshOAuthProviderConnection = async (
+  provider: OAuthProvider,
+  ownerKey: string = DEFAULT_OWNER_KEY
+): Promise<{ refreshed: boolean; accessTokenAvailable: boolean }> => {
+  const accessToken = await getAccessTokenForProvider(provider, ownerKey);
+  return {
+    refreshed: !!accessToken,
+    accessTokenAvailable: !!accessToken,
+  };
 };
