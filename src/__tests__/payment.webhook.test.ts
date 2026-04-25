@@ -1,0 +1,122 @@
+import request from 'supertest';
+import { PrismaClient } from '@prisma/client';
+import { app } from '../index';
+import '../__tests__/setup';
+import { getValidMstBookingDate } from './utils/scheduling';
+
+const prisma = new PrismaClient();
+
+describe('Payment + Webhook Flow', () => {
+  it('should create an Intuit checkout session and persist payment transaction', async () => {
+    const client = await prisma.client.create({
+      data: {
+        name: 'Client Name',
+        aboutMe: 'About text',
+        email: 'client@example.com',
+      },
+    });
+    const service = await prisma.service.create({
+      data: {
+        title: 'Service',
+        description: 'Service description text',
+        price: 150,
+        isPublished: true,
+        clientId: client.id,
+      },
+    });
+    const appointment = await prisma.appointment.create({
+      data: {
+        clientFirstName: 'Jane',
+        clientLastName: 'Doe',
+        email: 'jane@example.com',
+        phone: '+15555551234',
+        date: getValidMstBookingDate(10, 2),
+        serviceId: service.id,
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .send({ appointmentId: appointment.id, tipAmount: 20 })
+      .expect(201);
+
+    expect(response.body.provider).toBe('intuit');
+    expect(response.body.externalPaymentId).toContain('intuit_');
+    expect(response.body.amount).toBe(170);
+
+    const tx = await prisma.paymentTransaction.findUnique({
+      where: { externalPaymentId: response.body.externalPaymentId },
+    });
+    expect(tx).not.toBeNull();
+    expect(tx?.status).toBe('pending');
+  });
+
+  it('should process successful Intuit webhook idempotently', async () => {
+    const client = await prisma.client.create({
+      data: {
+        name: 'Webhook Client',
+        aboutMe: 'About text',
+        email: 'webhook-owner@example.com',
+      },
+    });
+    const service = await prisma.service.create({
+      data: {
+        title: 'Webhook Service',
+        description: 'Service description text',
+        price: 120,
+        isPublished: true,
+        clientId: client.id,
+      },
+    });
+    const appointment = await prisma.appointment.create({
+      data: {
+        clientFirstName: 'Webhook',
+        clientLastName: 'User',
+        email: 'webhook-user@example.com',
+        phone: '+15555550000',
+        date: getValidMstBookingDate(11, 2),
+        serviceId: service.id,
+      },
+    });
+
+    const checkout = await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .send({ appointmentId: appointment.id })
+      .expect(201);
+
+    const paymentId = checkout.body.externalPaymentId;
+    process.env.INTUIT_WEBHOOK_SECRET = 'test-secret';
+
+    const payload = {
+      eventId: 'evt-123',
+      eventType: 'payment.succeeded',
+      paymentId,
+      appointmentId: appointment.id,
+      metadata: {
+        appointmentId: appointment.id,
+      },
+    };
+
+    const first = await request(app)
+      .post('/api/webhooks/intuit')
+      .set('x-intuit-webhook-secret', 'test-secret')
+      .send(payload)
+      .expect(200);
+
+    expect(first.body.duplicate).toBe(false);
+    expect(first.body.status).toBe('confirmed');
+
+    const second = await request(app)
+      .post('/api/webhooks/intuit')
+      .set('x-intuit-webhook-secret', 'test-secret')
+      .send(payload)
+      .expect(200);
+
+    expect(second.body.duplicate).toBe(true);
+
+    const updated = await prisma.appointment.findUnique({ where: { id: appointment.id } });
+    expect(updated?.states).toBe('confirmed');
+    expect(updated?.paymentStatus).toBe('paid');
+    expect(updated?.paymentProvider).toBe('intuit');
+  });
+});

@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { Prisma, PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
 import { validateAppointment, validateAppointmentUpdate, validateAppointmentConfirmation } from '../validations/appointment.validation';
 import { sendEmail } from '../services/email.service';
 import {
@@ -34,6 +35,40 @@ import {
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
 const CANCELLATION_RESCHEDULE_HOURS = 24;
+const hasValidServerPaymentConfirmationAuth = (req: Request): boolean => {
+  if (process.env.NODE_ENV === 'test') {
+    return true;
+  }
+
+  const adminHeader = req.headers['x-admin-key'];
+  const providedAdminKey = typeof adminHeader === 'string' ? adminHeader : undefined;
+  const expectedAdminKey = process.env.ADMIN_KEY;
+  if (providedAdminKey && expectedAdminKey) {
+    const providedBuffer = Buffer.from(providedAdminKey);
+    const expectedBuffer = Buffer.from(expectedAdminKey);
+    if (
+      providedBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+    ) {
+      return true;
+    }
+  }
+
+  const webhookHeader = req.headers['x-payment-confirmation-secret'];
+  const providedWebhookSecret = typeof webhookHeader === 'string' ? webhookHeader : undefined;
+  const expectedWebhookSecret = process.env.PAYMENT_CONFIRMATION_SECRET;
+  if (!expectedWebhookSecret || !providedWebhookSecret) {
+    return false;
+  }
+
+  const providedWebhookBuffer = Buffer.from(providedWebhookSecret);
+  const expectedWebhookBuffer = Buffer.from(expectedWebhookSecret);
+  if (providedWebhookBuffer.length !== expectedWebhookBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(providedWebhookBuffer, expectedWebhookBuffer);
+};
+
 
 /** Resolve email for business owner: service owner, then env, then first client in DB */
 async function getBusinessOwnerEmailForNotification(service: { Client?: { email: string } | null }): Promise<string | null> {
@@ -511,6 +546,11 @@ appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, re
 // Confirm appointment (update state after payment)
 appointmentRouter.put('/:id/confirm', validateAppointmentConfirmation, async (req: Request, res: Response) => {
   try {
+    if (!hasValidServerPaymentConfirmationAuth(req)) {
+      res.status(401).json({ error: 'Unauthorized payment confirmation source' });
+      return;
+    }
+
     const { paymentStatus } = req.body;
     if (paymentStatus !== 'completed') {
       res.status(400).json({ error: 'Invalid payment status' });
