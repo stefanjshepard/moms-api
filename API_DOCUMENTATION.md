@@ -379,6 +379,30 @@ npx prisma db seed
   - `src/services/scheduling.service.ts`
   - `src/services/reminder.service.ts`
   - `src/services/calendar.service.ts`
+- OAuth/integration helpers:
+  - `src/routes/oauth.routes.ts`
+  - `src/routes/integration.routes.ts`
+  - `src/services/oauth/oauth.service.ts`
+  - `src/services/oauth/oauth.providers.ts`
+
+## 13) Integration OAuth Endpoints
+
+Provider authorization and callback:
+
+- `POST /api/oauth/:provider/authorize` (admin auth required)
+- `GET /api/oauth/callback/:provider`
+- `GET /api/oauth/:provider/status` (admin auth required)
+- `DELETE /api/oauth/:provider/connection` (admin auth required)
+
+Integration diagnostics:
+
+- `GET /api/admin/integrations/:provider/status` (admin auth required)
+- `POST /api/admin/integrations/:provider/refresh` (admin auth required)
+
+Supported providers:
+
+- `google_calendar`
+- `intuit`
 - Prisma schema + seed:
   - `prisma/schema.prisma`
   - `prisma/seed.ts`

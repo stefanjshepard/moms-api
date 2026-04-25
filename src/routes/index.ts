@@ -10,6 +10,7 @@ import { adminAuth } from '../middleware/auth';
 import contactRouter from "./contact.routes";
 import emailRouter from "./email.routes";
 import oauthRouter from './oauth.routes';
+import integrationRouter from './integration.routes';
 
 const router = express.Router();
 
@@ -27,5 +28,6 @@ router.use('/admin/services', adminAuth, serviceRouter);
 router.use('/admin/testimonials', adminAuth, testimonialRouter);
 router.use('/admin/blog-posts', adminAuth, blogPostRouter);
 router.use('/admin/email', adminAuth, emailRouter);
+router.use('/admin/integrations', integrationRouter);
 
 export default router;

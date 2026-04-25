@@ -50,6 +50,23 @@ GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/google_calend
 # GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
+## Intuit OAuth Connection (Preparation)
+
+```env
+INTUIT_OAUTH_CLIENT_ID=...
+INTUIT_OAUTH_CLIENT_SECRET=...
+INTUIT_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/intuit
+# Optional:
+# INTUIT_OAUTH_AUTHORIZE_URL=https://appcenter.intuit.com/connect/oauth2
+# INTUIT_OAUTH_TOKEN_URL=https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
+# INTUIT_OAUTH_SCOPES=com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
+```
+
+New admin diagnostics endpoints:
+
+- `GET /api/admin/integrations/intuit/status`
+- `POST /api/admin/integrations/intuit/refresh`
+
 ## Test Commands
 
 ```bash
