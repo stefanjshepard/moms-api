@@ -25,8 +25,11 @@ import {
   rangesOverlap,
 } from '../services/scheduling.service';
 import { scheduleAppointmentReminder, cancelAppointmentReminders } from '../services/reminder.service';
-import { buildGoogleCalendarEventPayload } from '../services/calendar.service';
 import { appointmentLimiter } from '../middleware/rateLimit';
+import {
+  deleteGoogleCalendarEvent,
+  upsertGoogleCalendarEvent,
+} from '../services/calendar.service';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -128,7 +131,7 @@ appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req:
       return;
     }
 
-    const appointment = await prisma.appointment.create({
+    let appointment = await prisma.appointment.create({
       data: {
         clientFirstName,
         clientLastName,
@@ -165,8 +168,19 @@ appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req:
       console.error('Failed to schedule appointment reminder:', err);
     }
 
-    // Hook point for Google Calendar integration.
-    void buildGoogleCalendarEventPayload(appointment, service);
+    // Sync with Google Calendar when enabled.
+    try {
+      const calendarEventId = await upsertGoogleCalendarEvent(appointment, service);
+      if (calendarEventId && calendarEventId !== appointment.calendarEventId) {
+        appointment = await prisma.appointment.update({
+          where: { id: appointment.id },
+          data: { calendarEventId },
+          include: { service: true },
+        });
+      }
+    } catch (err) {
+      console.error('Failed to sync appointment to Google Calendar:', err);
+    }
 
     getBusinessOwnerEmailForNotification(service).then((ownerEmail) => {
       if (ownerEmail) {
@@ -408,7 +422,7 @@ appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, re
       }
     }
 
-    const appointment = await prisma.appointment.update({
+    let appointment = await prisma.appointment.update({
       where: { id: req.params.id },
       data: {
         clientFirstName,
@@ -470,7 +484,21 @@ appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, re
       } catch (err) {
         console.error('Failed to reschedule appointment reminder:', err);
       }
-      void buildGoogleCalendarEventPayload(appointment, appointment.service);
+    }
+
+    if (appointment.service && appointment.states !== 'cancelled') {
+      try {
+        const calendarEventId = await upsertGoogleCalendarEvent(appointment, appointment.service);
+        if (calendarEventId && calendarEventId !== appointment.calendarEventId) {
+          appointment = await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: { calendarEventId },
+            include: { service: true },
+          });
+        }
+      } catch (err) {
+        console.error('Failed to sync updated appointment to Google Calendar:', err);
+      }
     }
 
     res.json(appointment);
@@ -541,6 +569,13 @@ appointmentRouter.delete('/:id', async (req: Request, res: Response) => {
     }
 
     await cancelAppointmentReminders(appointment.id);
+    if (appointment.calendarEventId) {
+      try {
+        await deleteGoogleCalendarEvent(appointment.calendarEventId);
+      } catch (err) {
+        console.error('Failed to delete appointment from Google Calendar:', err);
+      }
+    }
     await prisma.appointment.delete({ where: { id: req.params.id } });
 
     if (appointment.service) {

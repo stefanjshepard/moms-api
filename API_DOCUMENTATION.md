@@ -294,19 +294,57 @@ Reminder dispatch:
 - Sends customer and owner reminder emails for due jobs
 - Marks jobs sent/failed with timestamps and error messages
 
-## 10) Google Calendar Readiness
+## 10) Google Calendar Sync
 
-Current API includes calendar-ready fields:
+Current API includes calendar-linked fields:
 
 - `Appointment.calendarEventId`
 - normalized start/end (`date`, `endDate`)
 - timezone tracking
 
-The code includes a calendar payload builder service:
+Calendar service:
 
 - `src/services/calendar.service.ts`
 
-Current behavior prepares payloads in flow as integration hook points; direct Google API sync is not yet wired.
+Current behavior synchronizes events with Google Calendar during appointment lifecycle operations:
+
+- create appointment -> create/update Google Calendar event
+- update appointment -> update event (or recreate if missing)
+- delete appointment -> delete Google Calendar event
+
+Sync is best-effort and non-blocking (API success is not blocked by Calendar API failure).
+
+### Required environment variables
+
+```env
+GOOGLE_CALENDAR_SYNC_ENABLED=true
+GOOGLE_CALENDAR_ID=primary
+GOOGLE_CALENDAR_AUTH_MODE=oauth
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/google_calendar
+```
+
+Optional fallback: service account credentials (if `GOOGLE_CALENDAR_ALLOW_SERVICE_ACCOUNT_FALLBACK=true`):
+
+```env
+# Option A (recommended for deployment systems)
+GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=...
+
+# Option B
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+
+# Option C
+GOOGLE_SERVICE_ACCOUNT_EMAIL=...
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
+Google OAuth connection flow:
+
+- `POST /api/oauth/google_calendar/authorize` (admin auth required)
+- Redirect user to returned `authorizationUrl`
+- Google callback hits `/api/oauth/callback/google_calendar`
+- Appointment create/update/delete syncs use stored OAuth tokens
 
 ## 11) Project Commands
 
