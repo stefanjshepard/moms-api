@@ -67,13 +67,16 @@ New admin diagnostics endpoints:
 - `GET /api/admin/integrations/intuit/status`
 - `POST /api/admin/integrations/intuit/refresh`
 
-## Intuit Payments + Webhooks (v1)
+## Intuit Payments + Webhooks
 
 ```env
 # payment checkout mode: mock (default) or live
 INTUIT_PAYMENT_MODE=mock
 
-# optional checkout redirect base (mock/demo)
+# required in live mode: Intuit payment creation endpoint
+# INTUIT_PAYMENTS_CREATE_URL=https://...
+
+# optional checkout redirect base (mock/demo mode)
 INTUIT_CHECKOUT_BASE_URL=https://sandbox.intuit.com/mock-checkout
 
 # webhook shared secret (optional but recommended)
@@ -81,12 +84,35 @@ INTUIT_WEBHOOK_SECRET=replace-me
 
 # server-side appointment confirmation secret (for /appointments/:id/confirm)
 PAYMENT_CONFIRMATION_SECRET=replace-me
+
+# tests only: enforce confirmation auth even in NODE_ENV=test
+# PAYMENT_CONFIRMATION_ENFORCE_IN_TEST=false
 ```
 
 Payment endpoints:
 
 - `POST /api/payments/intuit/checkout-session`
 - `POST /api/webhooks/intuit`
+
+## Reminder Dispatch Automation
+
+The API schedules a 24h reminder job when appointments are created/updated. To automatically send due reminders without manually calling the admin endpoint, enable the built-in scheduler:
+
+```env
+ENABLE_REMINDER_DISPATCH_SCHEDULER=true
+REMINDER_DISPATCH_INTERVAL_MINUTES=5
+
+# Optional endpoint-based dispatch (calls POST /api/admin/email/reminders/dispatch)
+REMINDER_DISPATCH_USE_ENDPOINT=true
+REMINDER_DISPATCH_BASE_URL=https://your-api-domain
+
+# Optional alert target when reminder dispatch has failures
+REMINDER_ALERT_EMAIL=owner@example.com
+```
+
+Manual dispatch endpoint (admin-protected) still exists:
+
+- `POST /api/admin/email/reminders/dispatch`
 
 ## Test Commands
 

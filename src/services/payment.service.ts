@@ -1,11 +1,19 @@
 import crypto from 'crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
+import axios from 'axios';
 import { appointmentConfirmedTemplate } from './email.templates';
 import { sendEmail } from './email.service';
 import { getAccessTokenForProvider } from './oauth/oauth.service';
+import { appointmentPaymentReceiptToOwnerTemplate } from './email.templates';
 
 const prisma = new PrismaClient();
 const INTUIT_PROVIDER = 'intuit';
+
+interface IntuitCheckoutResult {
+  externalPaymentId: string;
+  checkoutUrl: string;
+  raw: Record<string, unknown>;
+}
 
 const getWebhookEventId = (payload: Record<string, unknown>): string => {
   const candidates = [
@@ -63,30 +71,78 @@ export const createIntuitCheckoutSession = async (params: {
   const externalPaymentId = `intuit_${crypto.randomUUID()}`;
 
   const mode = process.env.INTUIT_PAYMENT_MODE || 'mock';
+  let checkoutResult: IntuitCheckoutResult;
   if (mode === 'live') {
     const token = await getAccessTokenForProvider('intuit');
     if (!token) {
       throw new Error('Intuit is not connected. Complete OAuth before creating checkout sessions.');
     }
-  }
+    const createUrl = process.env.INTUIT_PAYMENTS_CREATE_URL;
+    if (!createUrl) {
+      throw new Error('Missing INTUIT_PAYMENTS_CREATE_URL for live Intuit payment mode.');
+    }
 
-  const checkoutBaseUrl =
-    process.env.INTUIT_CHECKOUT_BASE_URL || 'https://sandbox.intuit.com/mock-checkout';
-  const checkoutUrl = `${checkoutBaseUrl}?paymentId=${encodeURIComponent(externalPaymentId)}&appointmentId=${encodeURIComponent(
-    appointment.id
-  )}`;
+    const requestBody = {
+      amount,
+      currency,
+      metadata: {
+        appointmentId: appointment.id,
+        externalPaymentId,
+      },
+      customer: {
+        email: appointment.email,
+        firstName: appointment.clientFirstName,
+        lastName: appointment.clientLastName,
+      },
+      description: `${appointment.service.title} appointment`,
+    };
+    const response = await axios.post<Record<string, unknown>>(createUrl, requestBody, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    });
+    const data = response.data || {};
+    const returnedExternalId =
+      (data.paymentId as string | undefined) ||
+      (data.id as string | undefined) ||
+      (data.chargeId as string | undefined);
+    const checkoutUrlFromIntuit =
+      (data.checkoutUrl as string | undefined) ||
+      (data.url as string | undefined) ||
+      (data.approvalUrl as string | undefined);
+    if (!checkoutUrlFromIntuit) {
+      throw new Error('Intuit live payment response missing checkout URL.');
+    }
+    checkoutResult = {
+      externalPaymentId: returnedExternalId || externalPaymentId,
+      checkoutUrl: checkoutUrlFromIntuit,
+      raw: data,
+    };
+  } else {
+    const checkoutBaseUrl =
+      process.env.INTUIT_CHECKOUT_BASE_URL || 'https://sandbox.intuit.com/mock-checkout';
+    checkoutResult = {
+      externalPaymentId,
+      checkoutUrl: `${checkoutBaseUrl}?paymentId=${encodeURIComponent(externalPaymentId)}&appointmentId=${encodeURIComponent(
+        appointment.id
+      )}`,
+      raw: { mode: 'mock' },
+    };
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.paymentTransaction.create({
       data: {
         appointmentId: appointment.id,
         provider: INTUIT_PROVIDER,
-        externalPaymentId,
+        externalPaymentId: checkoutResult.externalPaymentId,
         status: 'pending',
         amount,
         currency,
-        checkoutUrl,
-        metadata: { mode },
+        checkoutUrl: checkoutResult.checkoutUrl,
+        metadata: { mode, gatewayResponse: checkoutResult.raw } as Prisma.InputJsonValue,
       },
     });
 
@@ -96,7 +152,7 @@ export const createIntuitCheckoutSession = async (params: {
         paymentStatus: 'pending',
         paymentMethod: 'credit_card',
         paymentProvider: INTUIT_PROVIDER,
-        paymentExternalId: externalPaymentId,
+        paymentExternalId: checkoutResult.externalPaymentId,
         tipAmount,
       },
     });
@@ -104,8 +160,8 @@ export const createIntuitCheckoutSession = async (params: {
 
   return {
     provider: INTUIT_PROVIDER,
-    externalPaymentId,
-    checkoutUrl,
+    externalPaymentId: checkoutResult.externalPaymentId,
+    checkoutUrl: checkoutResult.checkoutUrl,
     amount,
     currency,
     status: 'pending',
@@ -191,7 +247,7 @@ export const processIntuitWebhook = async (
         paymentId ? { paymentExternalId: paymentId } : undefined,
       ].filter(Boolean) as any,
     },
-    include: { service: true },
+    include: { service: { include: { Client: true } } },
   });
 
   if (!appointment) {
@@ -257,6 +313,32 @@ export const processIntuitWebhook = async (
     sendEmail(appointment.email, 'Appointment Confirmed!', html).catch((err) => {
       console.error('Failed to send payment confirmation email:', err);
     });
+
+    const ownerEmail =
+      appointment.service.Client?.email || process.env.BUSINESS_OWNER_EMAIL || null;
+    if (ownerEmail) {
+      const ownerReceiptHtml = appointmentPaymentReceiptToOwnerTemplate({
+        customerFirstName: appointment.clientFirstName,
+        customerLastName: appointment.clientLastName,
+        customerEmail: appointment.email,
+        customerPhone: appointment.phone ?? null,
+        serviceTitle: appointment.service.title,
+        date: appointment.date,
+        appointmentId: appointment.id,
+        paymentExternalId: paymentId ?? appointment.paymentExternalId ?? 'not_available',
+        amountPaid:
+          (payload.amount as number | undefined) ??
+          (payload.total as number | undefined) ??
+          appointment.service.price + (appointment.tipAmount ?? 0),
+        currency:
+          (payload.currency as string | undefined) ||
+          ((payload.data as Record<string, unknown> | undefined)?.currency as string | undefined) ||
+          'USD',
+      });
+      sendEmail(ownerEmail, `Payment received: ${appointment.clientFirstName} ${appointment.clientLastName}`, ownerReceiptHtml).catch((err) => {
+        console.error('Failed to send owner payment receipt email:', err);
+      });
+    }
   }
 
   return { accepted: true, duplicate: false, eventId, status: 'confirmed' };
