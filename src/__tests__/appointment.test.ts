@@ -5,6 +5,7 @@ import '../__tests__/setup';
 import { getValidMstBookingDate } from './utils/scheduling';
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Appointment Routes', () => {
   // Test data
@@ -117,6 +118,7 @@ describe('Appointment Routes', () => {
 
       const response = await request(app)
         .get('/api/appointments')
+        .set('x-admin-key', ADMIN_KEY)
         .expect(200);
 
       expect(Array.isArray(response.body)).toBe(true);
@@ -147,6 +149,7 @@ describe('Appointment Routes', () => {
 
       const response = await request(app)
         .get('/api/appointments')
+        .set('x-admin-key', ADMIN_KEY)
         .query({
           dateFrom: firstDate.toISOString(),
           dateTo: new Date(firstDate.getTime() + 2 * 60 * 60 * 1000).toISOString(),
@@ -185,6 +188,7 @@ describe('Appointment Routes', () => {
 
       const response = await request(app)
         .get(`/api/appointments/${createdAppointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(200);
 
       expect(response.body.id).toBe(createdAppointment.id);
@@ -194,6 +198,7 @@ describe('Appointment Routes', () => {
     it('should return 404 if appointment not found', async () => {
       const response = await request(app)
         .get('/api/appointments/non-existent-id')
+        .set('x-admin-key', ADMIN_KEY)
         .expect(404);
 
       expect(response.body).toHaveProperty('error');
@@ -220,6 +225,7 @@ describe('Appointment Routes', () => {
 
       const response = await request(app)
         .put(`/api/appointments/${createdAppointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send(updatedData)
         .expect(200);
 
@@ -262,6 +268,7 @@ describe('Appointment Routes', () => {
 
       await request(app)
         .delete(`/api/appointments/${createdAppointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(204);
 
       // Verify the appointment is deleted
@@ -283,6 +290,7 @@ describe('Appointment Routes', () => {
 
       const response = await request(app)
         .delete(`/api/appointments/${soonAppointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(400);
 
       expect(response.body.error).toContain('cancelled at least 24 hours in advance');

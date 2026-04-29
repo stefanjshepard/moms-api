@@ -13,6 +13,7 @@ import oauthRouter from './oauth.routes';
 import integrationRouter from './integration.routes';
 import paymentRouter from './payment.routes';
 import webhookRouter from './webhook.routes';
+import securityRouter from './security.routes';
 
 const router = express.Router();
 
@@ -33,5 +34,6 @@ router.use('/admin/testimonials', adminAuth, testimonialRouter);
 router.use('/admin/blog-posts', adminAuth, blogPostRouter);
 router.use('/admin/email', adminAuth, emailRouter);
 router.use('/admin/integrations', integrationRouter);
+router.use('/admin/security', securityRouter);
 
 export default router;

@@ -404,20 +404,27 @@ Supported providers:
 - `google_calendar`
 - `intuit`
 
-## 14) Intuit Payment Flow (v1)
+## 14) Intuit Payment Flow (hardened)
 
 Checkout creation:
 
 - `POST /api/payments/intuit/checkout-session`
+- requires booking-scoped token in `x-booking-token` (or `bookingToken` body field)
 - creates a `PaymentTransaction` with `pending` status
 - stores `paymentProvider=intuit` and `paymentExternalId` on the appointment
 
 Webhook processing:
 
 - `POST /api/webhooks/intuit`
-- optional shared-secret protection via `INTUIT_WEBHOOK_SECRET` and `x-intuit-webhook-secret` header
-- deduplicates events with `IntegrationWebhookEvent` (`provider + eventExternalId`)
-- on succeeded events, marks appointment as paid/confirmed and updates related payment transaction records
+- requires signed webhook headers (`intuit-signature`, `intuit-timestamp`) when `INTUIT_WEBHOOK_SECRET` is configured
+- enforces replay-window checks (`INTUIT_WEBHOOK_MAX_AGE_SECONDS`, default 300s)
+- blocks replayed signatures with `WebhookReplayGuard` in addition to event-id dedupe
+- accepts only allowlisted success events (`INTUIT_SUCCESS_EVENT_TYPES`)
+- verifies strict payment integrity before confirmation:
+  - `externalPaymentId` maps to pending transaction
+  - amount/currency must match expected transaction values
+  - realm/account mismatch is rejected when available
+- on mismatch/replay/signature errors, rejects webhook and emits security audit + alert records
 
 Server-trusted confirmation:
 
@@ -428,4 +435,24 @@ Server-trusted confirmation:
 - Prisma schema + seed:
   - `prisma/schema.prisma`
   - `prisma/seed.ts`
+
+Route access hardening:
+
+- public:
+  - `POST /api/appointments`
+  - `GET /api/appointments/available`
+  - `POST /api/contact`
+- admin-only:
+  - `GET /api/appointments`
+  - `GET /api/appointments/:id`
+  - `PUT /api/appointments/:id`
+  - `DELETE /api/appointments/:id`
+  - `GET /api/contact`
+  - `DELETE /api/contact/:id`
+
+Security operations:
+
+- structured security audit records are persisted in `SecurityAuditEvent`
+- retention cleanup endpoint:
+  - `POST /api/admin/security/retention/run` (admin auth required)
 

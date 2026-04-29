@@ -270,6 +270,13 @@ paths:
       tags: [Payments]
       summary: Create Intuit checkout session for appointment
       operationId: createIntuitCheckoutSession
+      parameters:
+        - in: header
+          name: x-booking-token
+          required: false
+          schema:
+            type: string
+          description: Booking-scoped token required when not supplied in request body.
       requestBody:
         required: true
         content:
@@ -285,6 +292,12 @@ paths:
                 $ref: "#/components/schemas/IntuitCheckoutSessionResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Missing or invalid booking token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Appointment not found
           content:
@@ -299,6 +312,17 @@ paths:
       tags: [Webhooks]
       summary: Process Intuit payment webhook
       operationId: processIntuitWebhook
+      parameters:
+        - in: header
+          name: intuit-signature
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: intuit-timestamp
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -315,6 +339,12 @@ paths:
                 $ref: "#/components/schemas/IntuitWebhookProcessResponse"
         "401":
           description: Unauthorized webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Replayed webhook signature
           content:
             application/json:
               schema:
@@ -1610,6 +1640,9 @@ components:
         appointmentId:
           type: string
           format: uuid
+        bookingToken:
+          type: string
+          description: Booking-scoped access token. Can be supplied via x-booking-token header instead.
         tipAmount:
           type: number
           minimum: 0

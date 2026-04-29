@@ -31,6 +31,9 @@ import {
   deleteGoogleCalendarEvent,
   upsertGoogleCalendarEvent,
 } from '../services/calendar.service';
+import { adminAuth } from '../middleware/auth';
+import { createBookingAccessToken } from '../services/booking-token.service';
+import { captchaIfConfigured } from '../middleware/captcha';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -121,7 +124,7 @@ const hasSchedulingConflict = async (
 };
 
 // Create a new appointment
-appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req: Request, res: Response) => {
+appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateAppointment, async (req: Request, res: Response) => {
   try {
     const {
       clientFirstName,
@@ -243,7 +246,20 @@ appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req:
       console.error('Error getting business owner email for appointment notification:', err);
     });
 
-    res.status(201).json(appointment);
+    let checkoutToken: string | null = null;
+    try {
+      checkoutToken = createBookingAccessToken({
+        appointmentId: appointment.id,
+        email: appointment.email,
+      });
+    } catch (_error) {
+      checkoutToken = null;
+    }
+
+    res.status(201).json({
+      ...appointment,
+      checkoutToken,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
@@ -251,7 +267,7 @@ appointmentRouter.post('/', appointmentLimiter, validateAppointment, async (req:
 });
 
 // Get all appointments
-appointmentRouter.get('/', async (req: Request, res: Response) => {
+appointmentRouter.get('/', adminAuth, async (req: Request, res: Response) => {
   try {
     const { dateFrom, dateTo, serviceId } = req.query;
     const where: Prisma.AppointmentWhereInput = {};
@@ -390,7 +406,7 @@ appointmentRouter.get('/available', async (req: Request, res: Response): Promise
 });
 
 // Get a specific appointment
-appointmentRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
+appointmentRouter.get('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const appointment = await prisma.appointment.findUnique({
       where: { id: req.params.id },
@@ -410,7 +426,7 @@ appointmentRouter.get('/:id', async (req: Request, res: Response): Promise<void>
 });
 
 // Update an appointment
-appointmentRouter.put('/:id', validateAppointmentUpdate, async (req: Request, res: Response): Promise<void> => {
+appointmentRouter.put('/:id', adminAuth, validateAppointmentUpdate, async (req: Request, res: Response): Promise<void> => {
   try {
     const existingAppointment = await prisma.appointment.findUnique({
       where: { id: req.params.id },
@@ -609,7 +625,7 @@ appointmentRouter.put('/:id/confirm', validateAppointmentConfirmation, async (re
 });
 
 // Delete an appointment
-appointmentRouter.delete('/:id', async (req: Request, res: Response) => {
+appointmentRouter.delete('/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const appointment = await prisma.appointment.findUnique({
       where: { id: req.params.id },

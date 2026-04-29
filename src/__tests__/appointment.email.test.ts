@@ -13,6 +13,7 @@ import { getValidMstBookingDate } from './utils/scheduling';
 
 const prisma = new PrismaClient();
 const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Appointment Email Integration', () => {
   const testService = {
@@ -150,6 +151,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({
           date: newDate,
         })
@@ -180,6 +182,7 @@ describe('Appointment Email Integration', () => {
       const newDate = getValidMstBookingDate(11, 2).toISOString();
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ date: newDate })
         .expect(200);
 
@@ -209,6 +212,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({
           clientFirstName: 'Jane', // Only updating name, not date
         })
@@ -235,6 +239,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .put(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send({ date: newDate })
         .expect(200);
 
@@ -322,6 +327,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .delete(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(204);
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -346,6 +352,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .delete(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(204);
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -374,6 +381,7 @@ describe('Appointment Email Integration', () => {
 
       await request(app)
         .delete(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(204);
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -405,6 +413,7 @@ describe('Appointment Email Integration', () => {
       // Should still delete the appointment
       await request(app)
         .delete(`/api/appointments/${appointment.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .expect(204);
     });
   });

@@ -1,7 +1,9 @@
 import { dispatchDueAppointmentReminders } from '../services/reminder.service';
 import { sendEmail } from '../services/email.service';
+import { runDataRetentionCleanup } from '../services/data-retention.service';
 
 let reminderInterval: NodeJS.Timeout | null = null;
+let retentionInterval: NodeJS.Timeout | null = null;
 
 const getAlertRecipient = (): string | null =>
   process.env.REMINDER_ALERT_EMAIL || process.env.BUSINESS_OWNER_EMAIL || null;
@@ -95,11 +97,30 @@ export const startReminderDispatchScheduler = (): void => {
       intervalMinutes === 1 ? '' : 's'
     }).`
   );
+
+  if (process.env.ENABLE_DATA_RETENTION_SCHEDULER === 'true' && !retentionInterval) {
+    const retentionIntervalHours = Math.max(
+      1,
+      parseInt(process.env.DATA_RETENTION_INTERVAL_HOURS || '24', 10)
+    );
+    void runDataRetentionCleanup().catch((error) => {
+      console.error('Initial data retention cleanup failed:', error);
+    });
+    retentionInterval = setInterval(() => {
+      void runDataRetentionCleanup().catch((error) => {
+        console.error('Scheduled data retention cleanup failed:', error);
+      });
+    }, retentionIntervalHours * 60 * 60 * 1000);
+  }
 };
 
 export const stopReminderDispatchScheduler = (): void => {
   if (reminderInterval) {
     clearInterval(reminderInterval);
     reminderInterval = null;
+  }
+  if (retentionInterval) {
+    clearInterval(retentionInterval);
+    retentionInterval = null;
   }
 };
