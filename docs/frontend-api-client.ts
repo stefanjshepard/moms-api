@@ -42,6 +42,7 @@ export interface Appointment {
   tipAmount?: number | null;
   paymentProvider?: string | null;
   paymentExternalId?: string | null;
+  checkoutToken?: string | null;
   service?: Service;
 }
 
@@ -202,21 +203,24 @@ export class MomsWebsiteApiClient {
     return this.request('/appointments', 'POST', input);
   }
 
+  // Admin-only appointment listing
   listAppointments(filters?: { dateFrom?: string; dateTo?: string; serviceId?: string }): Promise<Appointment[]> {
     const params = new URLSearchParams();
     if (filters?.dateFrom) params.set('dateFrom', filters.dateFrom);
     if (filters?.dateTo) params.set('dateTo', filters.dateTo);
     if (filters?.serviceId) params.set('serviceId', filters.serviceId);
     const suffix = params.toString() ? `?${params.toString()}` : '';
-    return this.request(`/appointments${suffix}`);
+    return this.request(`/appointments${suffix}`, 'GET', undefined, true);
   }
 
+  // Admin-only appointment detail
   getAppointmentById(appointmentId: string): Promise<Appointment> {
-    return this.request(`/appointments/${appointmentId}`);
+    return this.request(`/appointments/${appointmentId}`, 'GET', undefined, true);
   }
 
+  // Admin-only appointment updates
   updateAppointment(appointmentId: string, input: AppointmentUpdateInput): Promise<Appointment> {
-    return this.request(`/appointments/${appointmentId}`, 'PUT', input);
+    return this.request(`/appointments/${appointmentId}`, 'PUT', input, true);
   }
 
   confirmAppointment(appointmentId: string, paymentConfirmationSecret?: string): Promise<Appointment> {
@@ -230,8 +234,9 @@ export class MomsWebsiteApiClient {
     }, false, headers);
   }
 
+  // Admin-only appointment delete
   deleteAppointment(appointmentId: string): Promise<void> {
-    return this.request(`/appointments/${appointmentId}`, 'DELETE');
+    return this.request(`/appointments/${appointmentId}`, 'DELETE', undefined, true);
   }
 
   getAvailableSlots(serviceId: string, date: string): Promise<{
@@ -251,12 +256,14 @@ export class MomsWebsiteApiClient {
     return this.request('/contact', 'POST', input);
   }
 
+  // Admin-only contact listing
   listContactRequests(): Promise<ContactRequest[]> {
-    return this.request('/contact');
+    return this.request('/contact', 'GET', undefined, true);
   }
 
+  // Admin-only contact deletion
   deleteContactRequest(contactId: string): Promise<void> {
-    return this.request(`/contact/${contactId}`, 'DELETE');
+    return this.request(`/contact/${contactId}`, 'DELETE', undefined, true);
   }
 
   // Public content
@@ -414,8 +421,23 @@ export class MomsWebsiteApiClient {
   }
 
   // Payments
-  createIntuitCheckoutSession(input: { appointmentId: string; tipAmount?: number; currency?: string }): Promise<CheckoutSession> {
-    return this.request('/payments/intuit/checkout-session', 'POST', input);
+  createIntuitCheckoutSession(input: {
+    appointmentId: string;
+    bookingToken: string;
+    tipAmount?: number;
+    currency?: string;
+  }): Promise<CheckoutSession> {
+    return this.request(
+      '/payments/intuit/checkout-session',
+      'POST',
+      {
+        appointmentId: input.appointmentId,
+        tipAmount: input.tipAmount,
+        currency: input.currency,
+      },
+      false,
+      { 'x-booking-token': input.bookingToken }
+    );
   }
 }
 

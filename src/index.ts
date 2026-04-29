@@ -30,7 +30,18 @@ const corsOptions = {
     ? process.env.FRONTEND_URL 
     : ['http://localhost:3000', 'http://localhost:5001'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-admin-key',
+    'x-payment-confirmation-secret',
+    'x-captcha-token',
+    'x-booking-token',
+    'x-intuit-signature',
+    'x-intuit-timestamp',
+    'intuit-signature',
+    'intuit-timestamp',
+  ],
   credentials: true,
   maxAge: 86400 // 24 hours
 };
@@ -72,6 +83,7 @@ app.use(helmet({
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Body parsing
+app.use('/api/webhooks/intuit', express.raw({ type: 'application/json', limit: '100kb' }));
 app.use(express.json({ limit: '10kb' })); // Limit body size
 app.use(bodyParser.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());

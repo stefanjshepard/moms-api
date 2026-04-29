@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { adminAuth } from '../middleware/auth';
-import { authLimiter } from '../middleware/rateLimit';
+import { oauthLimiter } from '../middleware/rateLimit';
 import { isSupportedOAuthProvider } from '../services/oauth/oauth.providers';
 import {
   getOAuthConnectionStatus,
@@ -11,7 +11,7 @@ const integrationRouter = express.Router();
 
 integrationRouter.get(
   '/:provider/status',
-  authLimiter,
+  oauthLimiter,
   adminAuth,
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -37,7 +37,7 @@ integrationRouter.get(
 
 integrationRouter.post(
   '/:provider/refresh',
-  authLimiter,
+  oauthLimiter,
   adminAuth,
   async (req: Request, res: Response): Promise<void> => {
     try {

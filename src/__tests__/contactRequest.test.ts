@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import '../__tests__/setup';
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Contact Request Routes', () => {
   //Test data
@@ -27,7 +28,9 @@ describe('Contact Request Routes', () => {
       await prisma.contactRequest.create({
         data: testContactRequest
       });
-      const response = await request(app).get('/api/contact');
+      const response = await request(app)
+        .get('/api/contact')
+        .set('x-admin-key', ADMIN_KEY);
       expect(response.status).toBe(200);
       expect(response.body).toBeInstanceOf(Array);
     });
@@ -39,7 +42,9 @@ describe('Contact Request Routes', () => {
         data: testContactRequest
       });
       
-      const response = await request(app).delete(`/api/contact/${contactRequest.id}`);
+      const response = await request(app)
+        .delete(`/api/contact/${contactRequest.id}`)
+        .set('x-admin-key', ADMIN_KEY);
       expect(response.status).toBe(204);
     });
   });

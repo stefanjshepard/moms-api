@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { adminAuth } from '../middleware/auth';
-import { authLimiter } from '../middleware/rateLimit';
+import { oauthLimiter } from '../middleware/rateLimit';
 import { isSupportedOAuthProvider } from '../services/oauth/oauth.providers';
 import {
   completeOAuthAuthorization,
@@ -11,7 +11,7 @@ import {
 
 const oauthRouter = express.Router();
 
-oauthRouter.post('/:provider/authorize', authLimiter, adminAuth, async (req: Request, res: Response): Promise<void> => {
+oauthRouter.post('/:provider/authorize', oauthLimiter, adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const provider = req.params.provider;
     if (!isSupportedOAuthProvider(provider)) {
@@ -32,7 +32,7 @@ oauthRouter.post('/:provider/authorize', authLimiter, adminAuth, async (req: Req
   }
 });
 
-oauthRouter.get('/callback/:provider', authLimiter, async (req: Request, res: Response): Promise<void> => {
+oauthRouter.get('/callback/:provider', oauthLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const provider = req.params.provider;
     if (!isSupportedOAuthProvider(provider)) {

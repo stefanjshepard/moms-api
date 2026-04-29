@@ -95,12 +95,12 @@ describe('Security Measures', () => {
   });
 
   describe('Public vs Protected Routes', () => {
-    it('should allow public access to appointments', async () => {
+    it('should require admin auth for appointment listings', async () => {
       const response = await request(app)
         .get('/api/appointments')
-        .expect(200);
+        .expect(401);
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(401);
     });
 
     it('should allow public access to services', async () => {
@@ -114,6 +114,14 @@ describe('Security Measures', () => {
     it('should require admin key for protected routes', async () => {
       const response = await request(app)
         .get('/api/services/admin/all')
+        .expect(401);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should require admin key for contact request listings', async () => {
+      const response = await request(app)
+        .get('/api/contact')
         .expect(401);
 
       expect(response.status).toBe(401);

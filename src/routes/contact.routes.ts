@@ -4,6 +4,9 @@ import { contactSchema } from '../validations/contact.validation';
 import { sendEmail } from '../services/email.service';
 import { contactRequestNotificationTemplate } from '../services/email.templates';
 import dotenv from 'dotenv';
+import { adminAuth } from '../middleware/auth';
+import { contactLimiter } from '../middleware/rateLimit';
+import { captchaIfConfigured } from '../middleware/captcha';
 
 dotenv.config();
 
@@ -27,7 +30,7 @@ const getBusinessOwnerEmail = async (): Promise<string | null> => {
   }
 };
 
-contactRouter.post('/', async (req: Request, res: Response) => {
+contactRouter.post('/', contactLimiter, captchaIfConfigured, async (req: Request, res: Response) => {
   const { error, value } = contactSchema.validate(req.body, { abortEarly: false });
 
   if (error) {
@@ -69,7 +72,7 @@ contactRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-contactRouter.get('/', async (_req: Request, res: Response) => {
+contactRouter.get('/', adminAuth, async (_req: Request, res: Response) => {
   try {
     const contactRequests = await prisma.contactRequest.findMany();
     res.json(contactRequests);
@@ -78,7 +81,7 @@ contactRouter.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-contactRouter.delete('/:id', async (req: Request, res: Response) => {
+contactRouter.delete('/:id', adminAuth, async (req: Request, res: Response) => {
   await prisma.contactRequest.delete({
     where: { id: req.params.id }
   });

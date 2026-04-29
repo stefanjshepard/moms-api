@@ -193,3 +193,30 @@ model PaymentTransaction {
   @@index([provider, status])
   @@index([appointmentId, provider])
 }
+
+model WebhookReplayGuard {
+  id            String   @id @default(uuid())
+  provider      String
+  signatureHash String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([provider, signatureHash])
+  @@index([expiresAt])
+}
+
+model SecurityAuditEvent {
+  id                   String   @id @default(uuid())
+  eventType            String
+  outcome              String
+  severity             String
+  provider             String?
+  appointmentId        String?
+  paymentTransactionId String?
+  metadata             Json?
+  createdAt            DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([severity, createdAt])
+  @@index([provider, createdAt])
+}
