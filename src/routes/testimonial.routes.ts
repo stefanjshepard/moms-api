@@ -1,5 +1,6 @@
 import express, { Request, Response, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { adminAuth } from '../middleware/auth';
 
 const testimonialRouter: Router = express.Router();
 const prisma = new PrismaClient();
@@ -32,8 +33,8 @@ testimonialRouter.get('/:id', async (req: Request, res: Response): Promise<void>
   }
 });
 
-// Create a new testimonial
-testimonialRouter.post('/', async (req: Request, res: Response): Promise<void> => {
+// Create is admin-only even on the public mount.
+testimonialRouter.post('/', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const testimonial = await prisma.testimonial.create({
       data: req.body

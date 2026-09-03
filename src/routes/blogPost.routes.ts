@@ -1,5 +1,6 @@
 import express, { Request, Response, Router } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { adminAuth } from '../middleware/auth';
 
 const blogPostRouter: Router = express.Router();
 const prisma = new PrismaClient();
@@ -37,9 +38,8 @@ blogPostRouter.get('/:id', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
-// Admin routes (these will be protected by adminAuth middleware)
-// Create new blog post
-blogPostRouter.post('/', async (req: Request, res: Response): Promise<void> => {
+// Admin routes — also guarded here so the public /blog mount cannot write.
+blogPostRouter.post('/', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const blogPost = await prisma.blogPost.create({
       data: {
@@ -53,8 +53,7 @@ blogPostRouter.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// Update blog post
-blogPostRouter.put('/:id', async (req: Request, res: Response): Promise<void> => {
+blogPostRouter.put('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const blogPost = await prisma.blogPost.update({
       where: { id: req.params.id },
@@ -66,8 +65,7 @@ blogPostRouter.put('/:id', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
-// Delete blog post
-blogPostRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+blogPostRouter.delete('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     await prisma.blogPost.delete({
       where: { id: req.params.id }
@@ -78,8 +76,7 @@ blogPostRouter.delete('/:id', async (req: Request, res: Response): Promise<void>
   }
 });
 
-// Publish/unpublish blog post
-blogPostRouter.patch('/:id/publish', async (req: Request, res: Response): Promise<void> => {
+blogPostRouter.patch('/:id/publish', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const blogPost = await prisma.blogPost.update({
       where: { id: req.params.id },
