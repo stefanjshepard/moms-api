@@ -14,6 +14,7 @@ import integrationRouter from './integration.routes';
 import paymentRouter from './payment.routes';
 import webhookRouter from './webhook.routes';
 import securityRouter from './security.routes';
+import flyerRouter from "./flyer.routes";
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ router.use('/services', serviceRouter);
 router.use('/testimonials', testimonialRouter);
 router.use('/blog', blogPostRouter);
 router.use('/contact', contactRouter);
+router.use('/flyers', flyerRouter);
 router.use('/oauth', oauthRouter);
 router.use('/payments', paymentRouter);
 router.use('/webhooks', webhookRouter);
@@ -33,6 +35,7 @@ router.use('/admin/services', adminAuth, serviceRouter);
 router.use('/admin/testimonials', adminAuth, testimonialRouter);
 router.use('/admin/blog-posts', adminAuth, blogPostRouter);
 router.use('/admin/email', adminAuth, emailRouter);
+router.use('/admin/flyers', adminAuth, flyerRouter);
 router.use('/admin/integrations', integrationRouter);
 router.use('/admin/security', securityRouter);
 

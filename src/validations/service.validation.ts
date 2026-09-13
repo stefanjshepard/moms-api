@@ -64,6 +64,13 @@ export const serviceSchema = Joi.object({
       'number.max': 'Buffer cannot exceed 60 minutes'
     }),
 
+  bookingMode: Joi.string()
+    .valid('appointment', 'inquire')
+    .default('appointment')
+    .messages({
+      'any.only': 'Booking mode must be appointment or inquire'
+    }),
+
   clientId: Joi.string()
     .uuid()
     .required()

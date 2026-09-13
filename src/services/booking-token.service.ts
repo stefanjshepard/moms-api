@@ -1,13 +1,18 @@
 import crypto from 'crypto';
 
+export type BookingTokenPurpose = 'checkout' | 'decision';
+
 interface BookingTokenPayload {
   appointmentId: string;
   email: string;
   iat: number;
   exp: number;
+  purpose?: BookingTokenPurpose;
 }
 
-const TOKEN_LIFETIME_SECONDS = 60 * 60 * 2; // 2 hours
+const TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 7; // 7 days for pay-after-accept links
+export const DECISION_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 14;
+export const CHECKOUT_TOKEN_TTL_SECONDS = TOKEN_LIFETIME_SECONDS;
 
 const b64UrlEncode = (input: Buffer | string): string =>
   (typeof input === 'string' ? Buffer.from(input, 'utf8') : input)
@@ -38,6 +43,7 @@ export const createBookingAccessToken = (params: {
   email: string;
   now?: Date;
   ttlSeconds?: number;
+  purpose?: BookingTokenPurpose;
 }): string => {
   const secret = getBookingTokenSecret();
   const nowEpoch = Math.floor((params.now ?? new Date()).getTime() / 1000);
@@ -46,6 +52,7 @@ export const createBookingAccessToken = (params: {
     email: params.email.toLowerCase(),
     iat: nowEpoch,
     exp: nowEpoch + (params.ttlSeconds ?? TOKEN_LIFETIME_SECONDS),
+    purpose: params.purpose ?? 'checkout',
   };
   const header = { alg: 'HS256', typ: 'BKT' };
   const encodedHeader = b64UrlEncode(JSON.stringify(header));
@@ -57,7 +64,7 @@ export const createBookingAccessToken = (params: {
 
 export const verifyBookingAccessToken = (
   token: string,
-  options?: { now?: Date; expectedAppointmentId?: string }
+  options?: { now?: Date; expectedAppointmentId?: string; expectedPurpose?: BookingTokenPurpose }
 ): { valid: true; payload: BookingTokenPayload } | { valid: false; reason: string } => {
   const secret = getBookingTokenSecret();
   const segments = token.split('.');
@@ -94,6 +101,11 @@ export const verifyBookingAccessToken = (
   }
   if (options?.expectedAppointmentId && payload.appointmentId !== options.expectedAppointmentId) {
     return { valid: false, reason: 'appointment_mismatch' };
+  }
+
+  const actualPurpose: BookingTokenPurpose = payload.purpose ?? 'checkout';
+  if (options?.expectedPurpose && actualPurpose !== options.expectedPurpose) {
+    return { valid: false, reason: 'purpose_mismatch' };
   }
 
   return { valid: true, payload };

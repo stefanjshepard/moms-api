@@ -54,7 +54,8 @@ describe('Appointment Routes', () => {
       const reminders = await prisma.reminderJob.findMany({
         where: { appointmentId: response.body.id },
       });
-      expect(reminders.length).toBeGreaterThan(0);
+      expect(reminders).toHaveLength(0);
+      expect(response.body.checkoutToken).toBeUndefined();
     });
 
     it('should return 400 if required fields are missing', async () => {

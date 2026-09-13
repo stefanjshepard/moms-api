@@ -26,6 +26,7 @@ interface AppointmentData {
   serviceDescription?: string;
   appointmentId?: string;
   oldDate?: Date; // For reschedule emails
+  payUrl?: string | null;
 }
 
 interface ContactRequestData {
@@ -43,6 +44,8 @@ interface AppointmentNotificationToOwnerData {
   serviceTitle: string;
   date: Date;
   appointmentId: string;
+  acceptUrl?: string | null;
+  denyUrl?: string | null;
 }
 
 /** Data for owner notification when a customer reschedules */
@@ -112,18 +115,18 @@ export const appointmentConfirmationTemplate = (data: AppointmentData): string =
     <body>
       <div class="container">
         <div class="header">
-          <h1>Appointment Confirmation</h1>
+          <h1>We received your request</h1>
         </div>
         <div class="content">
           <p>Hi ${escapeHtml(data.clientFirstName)},</p>
-          <p>Thank you for booking an appointment with us! Your appointment has been successfully scheduled.</p>
+          <p>Thank you for requesting a session. Annette will review this time and email you when it is accepted. Please wait to pay until you receive that email.</p>
           <div class="details">
             <h3>Appointment Details:</h3>
             <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
             <p><strong>Status:</strong> Pending Confirmation</p>
           </div>
-          <p>We'll send you a confirmation email once your appointment is confirmed. If you need to make any changes, please contact us as soon as possible.</p>
+          <p>If this time no longer works, reply to Annette or send a note through the website.</p>
           <p>We look forward to seeing you!</p>
         </div>
         <div class="footer">
@@ -333,10 +336,10 @@ export const appointmentNotificationToOwnerTemplate = (data: AppointmentNotifica
     <body>
       <div class="container">
         <div class="header">
-          <h1>New Appointment Booked</h1>
+          <h1>New Appointment Request</h1>
         </div>
         <div class="content">
-          <p>A new appointment has been requested on your site.</p>
+          <p>A new appointment has been requested on your site. Accepting it holds the time on your Google Calendar and emails the customer a payment link.</p>
           <div class="details">
             <h3>Appointment details</h3>
             <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
@@ -349,7 +352,15 @@ export const appointmentNotificationToOwnerTemplate = (data: AppointmentNotifica
               ${phoneLine}
             </div>
           </div>
-          <p>You can use the details above to reach out to your client if needed.</p>
+          ${
+            data.acceptUrl && data.denyUrl
+              ? `<p style="margin: 24px 0;">
+                  <a href="${escapeHtml(data.acceptUrl)}" style="display:inline-block;background:#2f6f5e;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:999px;margin-right:12px;">Accept booking</a>
+                  <a href="${escapeHtml(data.denyUrl)}" style="display:inline-block;background:#9b2c2c;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:999px;">Deny booking</a>
+                </p>
+                <p>These links confirm or release this time. The slot stays held until you decide.</p>`
+              : '<p>You can use the details above to reach out to your client if needed.</p>'
+          }
         </div>
         <div class="footer">
           <p>This is an automated message from your booking system.</p>
@@ -700,4 +711,243 @@ export const contactRequestNotificationTemplate = (data: ContactRequestData): st
     </body>
     </html>
   `;
+};
+
+export const appointmentAcceptedTemplate = (data: AppointmentData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const payButton = data.payUrl
+    ? `<p style="margin: 24px 0;">
+        <a href="${escapeHtml(data.payUrl)}" style="display:inline-block;background:#2f6f5e;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:999px;">Complete payment</a>
+      </p>`
+    : '';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #2f6f5e; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2f6f5e; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Your session is accepted</h1>
+        </div>
+        <div class="content">
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
+          <p>Annette has accepted your booking. Please complete payment to finish holding this time.</p>
+          <div class="details">
+            <h3>Appointment Details:</h3>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date & Time:</strong> ${formattedDate}</p>
+            <p><strong>Status:</strong> Accepted — payment due</p>
+          </div>
+          ${payButton}
+          <p>If the payment button does not work, reply to this email and we will send another link.</p>
+        </div>
+        <div class="footer">
+          <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const appointmentDeniedTemplate = (data: AppointmentData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #9b2c2c; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #9b2c2c; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>This time is not available</h1>
+        </div>
+        <div class="content">
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
+          <p>Thank you for requesting a session. This particular time could not be confirmed. Please choose another opening on the booking page, or send a note if you would like help finding a time.</p>
+          <div class="details">
+            <h3>Requested time:</h3>
+            <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date & Time:</strong> ${formattedDate}</p>
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const circleRegistrationToCustomerTemplate = (data: AppointmentData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const payButton = data.payUrl
+    ? `<p style="margin: 24px 0;">
+        <a href="${escapeHtml(data.payUrl)}" style="display:inline-block;background:#2f6f5e;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:999px;">Pay for this circle</a>
+      </p>`
+    : '';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #2f6f5e; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2f6f5e; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Circle registration received</h1>
+        </div>
+        <div class="content">
+          <p>Hi ${escapeHtml(data.clientFirstName)},</p>
+          <p>Your seat request for this Sistership Circle is in. Complete payment with the button below. This beta checkout is labeled as a demo until live cards are enabled.</p>
+          <div class="details">
+            <p><strong>Circle:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date & Time:</strong> ${formattedDate}</p>
+          </div>
+          ${payButton}
+        </div>
+        <div class="footer">
+          <p>This is an automated message from Oneness Center.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const circleRegistrationToOwnerTemplate = (data: AppointmentNotificationToOwnerData): string => {
+  const formattedDate = new Date(data.date).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const fullName = `${escapeHtml(data.customerFirstName)} ${escapeHtml(data.customerLastName)}`.trim();
+  const phoneLine = data.customerPhone
+    ? `<p><strong>Phone:</strong> ${escapeHtml(data.customerPhone)}</p>`
+    : '<p><strong>Phone:</strong> Not provided</p>';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #2f6f5e; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background-color: #f9f9f9; }
+        .details { background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2f6f5e; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Circle seat requested</h1>
+        </div>
+        <div class="content">
+          <p>Someone requested a seat for a published Sistership Circle flyer.</p>
+          <div class="details">
+            <p><strong>Circle:</strong> ${escapeHtml(data.serviceTitle)}</p>
+            <p><strong>Date &amp; time:</strong> ${formattedDate}</p>
+            <p><strong>Name:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> ${escapeHtml(data.customerEmail)}</p>
+            ${phoneLine}
+          </div>
+        </div>
+        <div class="footer">
+          <p>This is an automated message from your booking system.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const appointmentDecisionPageHtml = (params: {
+  title: string;
+  body: string;
+  ok: boolean;
+  calendarNote?: string;
+}): string => {
+  const accent = params.ok ? '#2f6f5e' : '#9b2c2c';
+  const calendarLine = params.calendarNote
+    ? `<p>${escapeHtml(params.calendarNote)}</p>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(params.title)}</title>
+  <style>
+    body { font-family: Georgia, serif; background: #f7f8f6; color: #1a2420; margin: 0; padding: 40px 20px; }
+    .card { max-width: 560px; margin: 0 auto; background: #fff; padding: 32px; border: 1px solid rgba(26,36,32,0.1); }
+    h1 { color: ${accent}; font-size: 28px; }
+    p { line-height: 1.6; color: #5c6b63; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapeHtml(params.title)}</h1>
+    <p>${escapeHtml(params.body)}</p>
+    ${calendarLine}
+  </div>
+</body>
+</html>`;
 };

@@ -60,7 +60,7 @@ describe('Appointment Email Integration', () => {
       expect(mockSendEmail).toHaveBeenCalled();
       expect(mockSendEmail).toHaveBeenCalledWith(
         testAppointment.email,
-        'Appointment Confirmation',
+        'We received your appointment request',
         expect.stringContaining(testAppointment.clientFirstName)
       );
     });

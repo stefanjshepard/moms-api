@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  await prisma.circleFlyer.deleteMany();
   await prisma.reminderJob.deleteMany();
   await prisma.appointment.deleteMany();
   await prisma.availabilityException.deleteMany();
@@ -46,6 +47,7 @@ async function main() {
             durationMinutes: 90,
             bufferMinutes: 15,
             isPublished: true,
+            bookingMode: "inquire",
           },
         ],
       },
@@ -65,26 +67,6 @@ async function main() {
       isActive: true,
       clientId: client.id,
     })),
-  });
-
-  const firstService = client.services[0];
-  const sampleStart = new Date(Date.now() + 72 * 60 * 60 * 1000);
-  const sampleEnd = new Date(sampleStart.getTime() + (firstService.durationMinutes + firstService.bufferMinutes) * 60_000);
-
-  await prisma.appointment.create({
-    data: {
-      clientFirstName: "Sample",
-      clientLastName: "Client",
-      email: "sample.client@example.com",
-      phone: "+15555551234",
-      date: sampleStart,
-      endDate: sampleEnd,
-      timezone: "MST",
-      serviceId: firstService.id,
-      states: "pending",
-      paymentStatus: "pending",
-      paymentMethod: "credit_card",
-    },
   });
 
   console.log("Seeding completed successfully!");

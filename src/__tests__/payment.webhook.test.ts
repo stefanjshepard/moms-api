@@ -61,6 +61,7 @@ describe('Payment + Webhook Flow', () => {
         phone: '+15555551234',
         date: getValidMstBookingDate(10, 2),
         serviceId: service.id,
+        states: 'confirmed',
       },
     });
 
@@ -143,6 +144,7 @@ describe('Payment + Webhook Flow', () => {
         phone: '+15555558888',
         date: getValidMstBookingDate(12, 2),
         serviceId: service.id,
+        states: 'confirmed',
       },
     });
 
@@ -197,6 +199,7 @@ describe('Payment + Webhook Flow', () => {
         phone: '+15555550000',
         date: getValidMstBookingDate(11, 2),
         serviceId: service.id,
+        states: 'confirmed',
       },
     });
 
@@ -290,6 +293,7 @@ describe('Payment + Webhook Flow', () => {
         phone: '+15555550001',
         date: getValidMstBookingDate(11, 2),
         serviceId: service.id,
+        states: 'confirmed',
       },
     });
 
