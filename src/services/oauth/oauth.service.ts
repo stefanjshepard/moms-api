@@ -91,8 +91,9 @@ export const createOAuthAuthorization = async (
 ): Promise<{ state: string; authorizationUrl: string }> => {
   const cfg = getOAuthProviderConfig(provider);
   const state = b64Url(crypto.randomBytes(32));
-  const codeVerifier = createPkceVerifier();
-  const codeChallenge = createPkceChallenge(codeVerifier);
+  const usePkce = cfg.usePkce === true;
+  const codeVerifier = usePkce ? createPkceVerifier() : null;
+  const codeChallenge = codeVerifier ? createPkceChallenge(codeVerifier) : null;
 
   await prisma.oAuthState.create({
     data: {
@@ -111,8 +112,10 @@ export const createOAuthAuthorization = async (
   params.set('redirect_uri', cfg.redirectUri);
   params.set('scope', cfg.scopes.join(' '));
   params.set('state', state);
-  params.set('code_challenge', codeChallenge);
-  params.set('code_challenge_method', 'S256');
+  if (codeChallenge) {
+    params.set('code_challenge', codeChallenge);
+    params.set('code_challenge_method', 'S256');
+  }
   if (cfg.accessType) {
     params.set('access_type', cfg.accessType);
   }
@@ -131,6 +134,7 @@ export const completeOAuthAuthorization = async (params: {
   code: string;
   state: string;
   ownerKey?: string;
+  realmId?: string;
 }): Promise<{ provider: OAuthProvider; ownerKey: string; redirectPath: string | null }> => {
   const ownerKey = params.ownerKey ?? DEFAULT_OWNER_KEY;
 
@@ -158,11 +162,27 @@ export const completeOAuthAuthorization = async (params: {
     ? tokenResponse.scope.split(/\s+/).filter(Boolean)
     : getOAuthProviderConfig(params.provider).scopes;
 
+  // Intuit returns realmId on the redirect query string, not in the token JSON.
+  const realmId = params.realmId || tokenResponse.realmId || undefined;
+
   await prisma.$transaction(async (tx) => {
     await tx.oAuthState.update({
       where: { id: stateRecord.id },
       data: { consumedAt: new Date() },
     });
+
+    const existing = await tx.integrationConnection.findUnique({
+      where: {
+        provider_ownerKey: {
+          provider: params.provider,
+          ownerKey,
+        },
+      },
+    });
+    const existingMetadata = (existing?.metadata as Record<string, unknown> | null) ?? {};
+    const metadata = realmId
+      ? ({ ...existingMetadata, realmId } as Prisma.InputJsonValue)
+      : undefined;
 
     await tx.integrationConnection.upsert({
       where: {
@@ -179,9 +199,7 @@ export const completeOAuthAuthorization = async (params: {
         refreshTokenEncrypted: encryptSecret(refreshTokenValue),
         tokenExpiresAt: getTokenExpiryDate(tokenResponse.expires_in),
         scopes,
-        metadata: tokenResponse.realmId
-          ? { realmId: tokenResponse.realmId }
-          : undefined,
+        metadata,
         isActive: true,
       },
       create: {
@@ -194,7 +212,7 @@ export const completeOAuthAuthorization = async (params: {
         refreshTokenEncrypted: encryptSecret(refreshTokenValue),
         tokenExpiresAt: getTokenExpiryDate(tokenResponse.expires_in),
         scopes,
-        metadata: tokenResponse.realmId ? { realmId: tokenResponse.realmId } : undefined,
+        metadata,
         isActive: true,
       },
     });
@@ -209,7 +227,8 @@ export const completeOAuthAuthorization = async (params: {
 
 export const getAccessTokenForProvider = async (
   provider: OAuthProvider,
-  ownerKey: string = DEFAULT_OWNER_KEY
+  ownerKey: string = DEFAULT_OWNER_KEY,
+  options?: { forceRefresh?: boolean }
 ): Promise<string | null> => {
   let connection;
   try {
@@ -228,6 +247,7 @@ export const getAccessTokenForProvider = async (
   }
 
   const needsRefresh =
+    options?.forceRefresh === true ||
     !connection.accessTokenEncrypted ||
     (connection.tokenExpiresAt ? connection.tokenExpiresAt.getTime() <= Date.now() + 60_000 : false);
 

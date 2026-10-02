@@ -43,6 +43,7 @@ oauthRouter.get('/callback/:provider', oauthLimiter, async (req: Request, res: R
     const code = typeof req.query.code === 'string' ? req.query.code : null;
     const state = typeof req.query.state === 'string' ? req.query.state : null;
     const ownerKey = typeof req.query.ownerKey === 'string' ? req.query.ownerKey : undefined;
+    const realmId = typeof req.query.realmId === 'string' ? req.query.realmId : undefined;
     if (!code || !state) {
       res.status(400).json({ error: 'Missing OAuth callback parameters' });
       return;
@@ -53,6 +54,7 @@ oauthRouter.get('/callback/:provider', oauthLimiter, async (req: Request, res: R
       code,
       state,
       ownerKey,
+      realmId,
     });
 
     if (result.redirectPath) {

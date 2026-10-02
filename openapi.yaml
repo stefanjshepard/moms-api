@@ -465,6 +465,12 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: realmId
+          required: false
+          description: Intuit company id returned on the OAuth redirect query string
+          schema:
+            type: string
       responses:
         "200":
           description: OAuth callback processed
@@ -585,6 +591,82 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
+
+  /admin/integrations/intuit/sandbox/companyinfo:
+    get:
+      tags: [Integrations]
+      summary: Call sandbox QuickBooks companyinfo with the stored Intuit access token
+      operationId: adminIntuitSandboxCompanyInfo
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: ownerKey
+          schema:
+            type: string
+      responses:
+        "200":
+          description: QuickBooks companyinfo payload
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Intuit API error
+
+  /admin/integrations/intuit/sandbox/userinfo:
+    get:
+      tags: [Integrations]
+      summary: Call sandbox OpenID userinfo with the stored Intuit access token
+      operationId: adminIntuitSandboxUserInfo
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: ownerKey
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OpenID userinfo payload
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Intuit API error
+
+  /admin/integrations/intuit/sandbox/charges:
+    post:
+      tags: [Integrations]
+      summary: Create a sandbox Payments charge using Intuit's documented test card fields
+      operationId: adminIntuitSandboxCharge
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ownerKey:
+                  type: string
+                amount:
+                  type: string
+                  example: "10.55"
+                currency:
+                  type: string
+                  example: USD
+      responses:
+        "201":
+          description: Sandbox charge created
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Intuit API error
 
   /services:
     get:

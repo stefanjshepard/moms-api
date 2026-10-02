@@ -39,4 +39,19 @@ describe('Integration Routes', () => {
 
     expect(response.body.error).toBe('Unsupported provider');
   });
+
+  it('should require admin auth for intuit sandbox probes', async () => {
+    await request(app).get('/api/admin/integrations/intuit/sandbox/companyinfo').expect(401);
+    await request(app).get('/api/admin/integrations/intuit/sandbox/userinfo').expect(401);
+    await request(app).post('/api/admin/integrations/intuit/sandbox/charges').expect(401);
+  });
+
+  it('should return 400 for sandbox companyinfo when intuit is disconnected', async () => {
+    const response = await request(app)
+      .get('/api/admin/integrations/intuit/sandbox/companyinfo')
+      .set('x-admin-key', process.env.ADMIN_KEY || '')
+      .expect(400);
+
+    expect(response.body.error).toMatch(/not connected/i);
+  });
 });

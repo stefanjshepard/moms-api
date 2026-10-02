@@ -1,4 +1,4 @@
-import { OAuthProvider, OAuthProviderConfig } from './oauth.types';
+import { IntuitApiEndpoints, IntuitEnvironment, OAuthProvider, OAuthProviderConfig } from './oauth.types';
 
 const getRequiredEnv = (key: string): string => {
   const value = process.env[key];
@@ -35,6 +35,7 @@ export const getOAuthProviderConfig = (provider: OAuthProvider): OAuthProviderCo
         ]),
         accessType: 'offline',
         prompt: 'consent',
+        usePkce: true,
       };
     case 'intuit':
       return {
@@ -47,8 +48,15 @@ export const getOAuthProviderConfig = (provider: OAuthProvider): OAuthProviderCo
         scopes: parseScopes(process.env.INTUIT_OAUTH_SCOPES, [
           'com.intuit.quickbooks.accounting',
           'com.intuit.quickbooks.payment',
+          'openid',
+          'profile',
+          'email',
+          'phone',
+          'address',
         ]),
         usesBasicClientAuth: true,
+        // Intuit's OAuth 2.0 docs and official oauth2-nodejs sample do not use PKCE.
+        usePkce: false,
       };
     default: {
       const exhaustive: never = provider;
@@ -59,3 +67,25 @@ export const getOAuthProviderConfig = (provider: OAuthProvider): OAuthProviderCo
 
 export const isSupportedOAuthProvider = (value: string): value is OAuthProvider =>
   value === 'google_calendar' || value === 'intuit';
+
+export const getIntuitEnvironment = (): IntuitEnvironment =>
+  process.env.INTUIT_ENVIRONMENT?.trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+
+export const getIntuitApiEndpoints = (): IntuitApiEndpoints => {
+  const environment = getIntuitEnvironment();
+  if (environment === 'production') {
+    return {
+      environment,
+      companyBaseUrl: 'https://quickbooks.api.intuit.com/v3/company',
+      userinfoUrl: 'https://accounts.platform.intuit.com/v1/openid_connect/userinfo',
+      chargesUrl: 'https://api.intuit.com/quickbooks/v4/payments/charges',
+    };
+  }
+
+  return {
+    environment,
+    companyBaseUrl: 'https://sandbox-quickbooks.api.intuit.com/v3/company',
+    userinfoUrl: 'https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo',
+    chargesUrl: 'https://sandbox.api.intuit.com/quickbooks/v4/payments/charges',
+  };
+};

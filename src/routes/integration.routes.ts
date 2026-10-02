@@ -6,8 +6,81 @@ import {
   getOAuthConnectionStatus,
   refreshOAuthProviderConnection,
 } from '../services/oauth/oauth.service';
+import {
+  createSandboxCharge,
+  getSandboxCompanyInfo,
+  getSandboxUserInfo,
+  IntuitSandboxError,
+} from '../services/intuit-sandbox.service';
 
 const integrationRouter = express.Router();
+
+const sendSandboxError = (res: Response, error: unknown, fallback: string): void => {
+  if (error instanceof IntuitSandboxError) {
+    res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+  console.error(fallback, error);
+  res.status(500).json({ error: fallback });
+};
+
+const readOwnerKey = (req: Request): string | undefined => {
+  if (typeof req.query.ownerKey === 'string') {
+    return req.query.ownerKey;
+  }
+  if (req.body && typeof req.body.ownerKey === 'string') {
+    return req.body.ownerKey;
+  }
+  return undefined;
+};
+
+integrationRouter.get(
+  '/intuit/sandbox/companyinfo',
+  oauthLimiter,
+  adminAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const data = await getSandboxCompanyInfo(readOwnerKey(req));
+      res.json({ environment: process.env.INTUIT_ENVIRONMENT || 'sandbox', data });
+    } catch (error) {
+      sendSandboxError(res, error, 'Failed to fetch Intuit companyinfo');
+    }
+  }
+);
+
+integrationRouter.get(
+  '/intuit/sandbox/userinfo',
+  oauthLimiter,
+  adminAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const data = await getSandboxUserInfo(readOwnerKey(req));
+      res.json({ environment: process.env.INTUIT_ENVIRONMENT || 'sandbox', data });
+    } catch (error) {
+      sendSandboxError(res, error, 'Failed to fetch Intuit userinfo');
+    }
+  }
+);
+
+integrationRouter.post(
+  '/intuit/sandbox/charges',
+  oauthLimiter,
+  adminAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const amount = req.body && typeof req.body.amount === 'string' ? req.body.amount : undefined;
+      const currency = req.body && typeof req.body.currency === 'string' ? req.body.currency : undefined;
+      const data = await createSandboxCharge({
+        ownerKey: readOwnerKey(req),
+        amount,
+        currency,
+      });
+      res.status(201).json({ environment: 'sandbox', data });
+    } catch (error) {
+      sendSandboxError(res, error, 'Failed to create Intuit sandbox charge');
+    }
+  }
+);
 
 integrationRouter.get(
   '/:provider/status',
