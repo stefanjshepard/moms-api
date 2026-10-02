@@ -5,6 +5,7 @@ import { resetAllLimiters } from '../middleware/rateLimit';
 import '../__tests__/setup';
 
 const prisma = new PrismaClient();
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Testimonial Routes', () => {
   beforeEach(async () => {
@@ -22,7 +23,8 @@ describe('Testimonial Routes', () => {
         data: {
           title: 'Great Service',
           author: 'John Doe',
-          content: 'Great service!'
+          content: 'Great service!',
+          isPublished: true,
         }
       });
 
@@ -30,7 +32,8 @@ describe('Testimonial Routes', () => {
         data: {
           title: 'Excellent Experience',
           author: 'Jane Smith',
-          content: 'Excellent experience'
+          content: 'Excellent experience',
+          isPublished: true,
         }
       });
 
@@ -44,6 +47,30 @@ describe('Testimonial Routes', () => {
       expect(response.body[0]).toHaveProperty('content');
     });
 
+    it('should hide unpublished testimonials on the public mount', async () => {
+      await prisma.testimonial.create({
+        data: {
+          title: 'Hidden',
+          author: 'Private',
+          content: 'Not for the site yet',
+          isPublished: false,
+        },
+      });
+      await prisma.testimonial.create({
+        data: {
+          title: 'Visible',
+          author: 'Public',
+          content: 'Please share this',
+          isPublished: true,
+        },
+      });
+
+      const response = await request(app).get('/api/testimonials');
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].title).toBe('Visible');
+    });
+
     it('should return empty array when no testimonials exist', async () => {
       const response = await request(app).get('/api/testimonials');
       
@@ -53,6 +80,21 @@ describe('Testimonial Routes', () => {
   });
 
   describe('POST /api/testimonials', () => {
+    it('should reject unauthenticated writes on the public mount', async () => {
+      const response = await request(app)
+        .post('/api/testimonials')
+        .send({
+          title: 'Great Service',
+          author: 'John Doe',
+          content: 'Great service!'
+        });
+
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: 'Unauthorized' });
+    });
+  });
+
+  describe('POST /api/admin/testimonials', () => {
     it('should create a new testimonial', async () => {
       const newTestimonial = {
         title: 'Great Service',
@@ -61,9 +103,10 @@ describe('Testimonial Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/testimonials')
+        .post('/api/admin/testimonials')
+        .set('x-admin-key', ADMIN_KEY)
         .send(newTestimonial);
-      
+
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('id');
       expect(response.body.title).toBe('Great Service');

@@ -35,9 +35,12 @@ model Service {
   durationMinutes Int      @default(60)
   bufferMinutes   Int      @default(15)
   isPublished Boolean       @default(false)
+  /// appointment = 1:1 scheduler; inquire = contact/flyer only (no slot booking)
+  bookingMode String        @default("appointment")
   Appointment Appointment[] //One-to-many with Appointment model
   Client      Client?       @relation(fields: [clientId], references: [id]) //foreign key pointing to Client model
   clientId    String?
+  circleFlyers CircleFlyer[]
 }
 
 model Appointment {
@@ -58,10 +61,32 @@ model Appointment {
   paymentProvider String?
   paymentExternalId String?
   calendarEventId String?
+  /// session = 1:1 booking; circle = flyer registration (multiple people may share a time)
+  kind            String   @default("session")
+  /// Display/in-person amount for circles; 1:1 checkout uses this when set.
+  quotedAmount    Float?
+  circleFlyerId   String?
+  circleFlyer     CircleFlyer? @relation(fields: [circleFlyerId], references: [id], onDelete: SetNull)
   cancelledAt     DateTime?
   rescheduledAt   DateTime?
   reminderJobs    ReminderJob[]
   paymentTransactions PaymentTransaction[]
+}
+
+model CircleFlyer {
+  id                       String   @id @default(uuid())
+  title                    String
+  body                     String
+  eventStart               DateTime
+  eventEnd                 DateTime
+  price                    Float
+  isPublished              Boolean  @default(false)
+  serviceId                String?
+  service                  Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  availabilityExceptionId  String?
+  calendarEventId          String?
+  createdAt                DateTime @default(now())
+  appointments             Appointment[]
 }
 
 model ContactRequest {

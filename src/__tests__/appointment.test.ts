@@ -54,7 +54,8 @@ describe('Appointment Routes', () => {
       const reminders = await prisma.reminderJob.findMany({
         where: { appointmentId: response.body.id },
       });
-      expect(reminders.length).toBeGreaterThan(0);
+      expect(reminders).toHaveLength(0);
+      expect(response.body.checkoutToken).toBeUndefined();
     });
 
     it('should return 400 if required fields are missing', async () => {
@@ -129,7 +130,7 @@ describe('Appointment Routes', () => {
 
     it('should filter appointments by date range', async () => {
       const firstDate = getValidMstBookingDate();
-      const secondDate = getValidMstBookingDate(11, 3);
+      const secondDate = getValidMstBookingDate(10, 10);
 
       await prisma.appointment.create({
         data: {

@@ -42,6 +42,7 @@ paymentRouter.post('/intuit/checkout-session', paymentLimiter, async (req: Reque
     }
     const tokenValidation = verifyBookingAccessToken(bookingToken, {
       expectedAppointmentId: value.appointmentId,
+      expectedPurpose: 'checkout',
     });
     if (!tokenValidation.valid) {
       await recordSecurityAuditEvent({
@@ -82,6 +83,18 @@ paymentRouter.post('/intuit/checkout-session', paymentLimiter, async (req: Reque
     }
     if (message === 'Booking token does not match appointment owner.') {
       res.status(401).json({ error: message });
+      return;
+    }
+    if (
+      message === 'This booking must be accepted before payment.' ||
+      message === 'Cancelled bookings cannot be paid.' ||
+      message === 'This booking is already paid.'
+    ) {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (message === 'Circle seats are paid in person at the event.') {
+      res.status(400).json({ error: message });
       return;
     }
     res.status(500).json({ error: message });

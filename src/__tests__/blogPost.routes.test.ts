@@ -5,6 +5,7 @@ import '../__tests__/setup';
 
 const prisma = new PrismaClient();
 const mockDate = new Date('2024-05-08T19:05:39.861Z');
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 describe('Blog Post Routes', () => {
   beforeEach(async () => {
@@ -107,6 +108,20 @@ describe('Blog Post Routes', () => {
   });
 
   describe('POST /api/blog', () => {
+    it('should reject unauthenticated writes on the public mount', async () => {
+      const response = await request(app)
+        .post('/api/blog')
+        .send({
+          title: 'New Post',
+          content: 'New Content'
+        });
+
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: 'Unauthorized' });
+    });
+  });
+
+  describe('POST /api/admin/blog-posts', () => {
     it('should create a new blog post', async () => {
       const newBlogPost = {
         title: 'New Post',
@@ -114,19 +129,42 @@ describe('Blog Post Routes', () => {
       };
 
       const response = await request(app)
-        .post('/api/blog')
+        .post('/api/admin/blog-posts')
+        .set('x-admin-key', ADMIN_KEY)
         .send(newBlogPost);
-      
+
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('id');
       expect(response.body.title).toBe('New Post');
       expect(response.body.content).toBe('New Content');
-      expect(response.body.isPublished).toBe(false); // Default to unpublished
+      expect(response.body.isPublished).toBe(false);
       expect(response.body).toHaveProperty('createdAt');
     });
   });
 
   describe('PUT /api/blog/:id', () => {
+    it('should reject unauthenticated updates on the public mount', async () => {
+      const blogPost = await prisma.blogPost.create({
+        data: {
+          title: 'Original Title',
+          content: 'Original Content',
+          isPublished: false
+        }
+      });
+
+      const response = await request(app)
+        .put(`/api/blog/${blogPost.id}`)
+        .send({
+          title: 'Updated Title',
+          content: 'Updated Content'
+        });
+
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: 'Unauthorized' });
+    });
+  });
+
+  describe('PUT /api/admin/blog-posts/:id', () => {
     it('should update an existing blog post', async () => {
       const blogPost = await prisma.blogPost.create({
         data: {
@@ -142,9 +180,10 @@ describe('Blog Post Routes', () => {
       };
 
       const response = await request(app)
-        .put(`/api/blog/${blogPost.id}`)
+        .put(`/api/admin/blog-posts/${blogPost.id}`)
+        .set('x-admin-key', ADMIN_KEY)
         .send(updateData);
-      
+
       expect(response.status).toBe(200);
       expect(response.body.id).toBe(blogPost.id);
       expect(response.body.title).toBe('Updated Title');
@@ -153,9 +192,10 @@ describe('Blog Post Routes', () => {
 
     it('should return 500 when updating non-existent blog post', async () => {
       const response = await request(app)
-        .put('/api/blog/00000000-0000-0000-0000-000000000000')
+        .put('/api/admin/blog-posts/00000000-0000-0000-0000-000000000000')
+        .set('x-admin-key', ADMIN_KEY)
         .send({ title: 'Updated Title' });
-      
+
       expect(response.status).toBe(500);
       expect(response.body).toEqual({ error: 'Failed to update blog post' });
     });

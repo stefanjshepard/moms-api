@@ -5,6 +5,7 @@ import { app } from '../index';
 import '../__tests__/setup';
 import { getValidMstBookingDate } from './utils/scheduling';
 import * as emailService from '../services/email.service';
+import { createBookingAccessToken } from '../services/booking-token.service';
 
 const prisma = new PrismaClient();
 
@@ -64,8 +65,21 @@ describe('Smoke E2E: book -> checkout -> webhook -> reminder queued', () => {
 
     expect(booking.status).toBe(201);
     const appointmentId = booking.body.id as string;
-    const bookingToken = booking.body.checkoutToken as string;
     expect(appointmentId).toBeTruthy();
+    expect(booking.body.checkoutToken).toBeUndefined();
+
+    process.env.BOOKING_TOKEN_SECRET = 'smoke-booking-token-secret';
+    const decisionToken = createBookingAccessToken({
+      appointmentId,
+      email: 'smoke-customer@example.com',
+      purpose: 'decision',
+    });
+    const accepted = await request(app)
+      .get(`/api/appointments/${appointmentId}/decision`)
+      .query({ action: 'accept', token: decisionToken, format: 'json' })
+      .set('Accept', 'application/json')
+      .expect(200);
+    const bookingToken = accepted.body.paymentToken as string;
     expect(bookingToken).toBeTruthy();
 
     const reminder = await prisma.reminderJob.findFirst({

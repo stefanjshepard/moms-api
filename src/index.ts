@@ -29,7 +29,7 @@ const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL 
     : ['http://localhost:3000', 'http://localhost:5001'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -62,9 +62,9 @@ app.use(helmet({
       frameSrc: ["'none'"],
     },
   },
-  crossOriginEmbedderPolicy: true,
+  crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: true,
-  crossOriginResourcePolicy: { policy: "same-site" },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
   dnsPrefetchControl: { allow: false },
   frameguard: { action: "deny" },
   hidePoweredBy: true,

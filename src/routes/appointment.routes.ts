@@ -11,6 +11,9 @@ import {
   appointmentNotificationToOwnerTemplate,
   appointmentRescheduleNotificationToOwnerTemplate,
   appointmentCancellationNotificationToOwnerTemplate,
+  appointmentAcceptedTemplate,
+  appointmentDeniedTemplate,
+  appointmentDecisionPageHtml,
 } from '../services/email.templates';
 import {
   BOOKING_TIMEZONE,
@@ -31,9 +34,17 @@ import {
   deleteGoogleCalendarEvent,
   upsertGoogleCalendarEvent,
 } from '../services/calendar.service';
+import { syncFlyerGoogleCalendarSafe } from './flyer.routes';
 import { adminAuth } from '../middleware/auth';
-import { createBookingAccessToken } from '../services/booking-token.service';
+import {
+  CHECKOUT_TOKEN_TTL_SECONDS,
+  DECISION_TOKEN_TTL_SECONDS,
+  createBookingAccessToken,
+  verifyBookingAccessToken,
+} from '../services/booking-token.service';
 import { captchaIfConfigured } from '../middleware/captcha';
+import { hasSchedulingConflict, isInquireOnlyService } from '../services/scheduling-conflict.service';
+import { getAppointmentDecisionUrl, getBookingPayUrl } from '../services/urls.service';
 
 const appointmentRouter = express.Router();
 const prisma = new PrismaClient();
@@ -93,34 +104,30 @@ async function getBusinessOwnerEmailForNotification(service: { Client?: { email:
   }
 }
 
-const hasSchedulingConflict = async (
-  serviceClientId: string | null,
-  startDate: Date,
-  endDate: Date,
-  excludeAppointmentId?: string
-): Promise<boolean> => {
-  const where: Prisma.AppointmentWhereInput = {
-    states: { not: 'cancelled' },
-    id: excludeAppointmentId ? { not: excludeAppointmentId } : undefined,
-    date: { lt: endDate },
-    service: serviceClientId ? { clientId: serviceClientId } : undefined,
-    OR: [{ endDate: { gt: startDate } }, { endDate: null }],
-  };
+const wantsJson = (req: Request): boolean => {
+  if (typeof req.query.format === 'string' && req.query.format.toLowerCase() === 'json') {
+    return true;
+  }
+  return req.accepts(['html', 'json']) === 'json';
+};
 
-  const existingAppointments = await prisma.appointment.findMany({
-    where,
-    include: { service: true },
-  });
-
-  return existingAppointments.some((existing) => {
-    const existingEnd = getEffectiveEndDate(
-      existing.date,
-      existing.endDate,
-      existing.service.durationMinutes,
-      existing.service.bufferMinutes
-    );
-    return rangesOverlap(existing.date, existingEnd, startDate, endDate);
-  });
+const sendDecisionResponse = (
+  req: Request,
+  res: Response,
+  status: number,
+  page: { title: string; body: string; ok: boolean; calendarNote?: string },
+  extra?: Record<string, unknown>
+): void => {
+  if (wantsJson(req)) {
+    res.status(status).json({
+      title: page.title,
+      message: page.body,
+      ok: page.ok,
+      ...extra,
+    });
+    return;
+  }
+  res.status(status).type('html').send(appointmentDecisionPageHtml(page));
 };
 
 // Create a new appointment
@@ -148,6 +155,13 @@ appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateApp
       return;
     }
 
+    if (isInquireOnlyService(service)) {
+      res.status(400).json({
+        error: 'This offering is inquire-only. Please use the contact form or the current circle flyer.',
+      });
+      return;
+    }
+
     const appointmentDate = new Date(date);
     const appointmentEndDate = getEffectiveEndDate(
       appointmentDate,
@@ -166,29 +180,55 @@ appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateApp
       return;
     }
 
-    const conflict = await hasSchedulingConflict(service.clientId ?? null, appointmentDate, appointmentEndDate);
-    if (conflict) {
-      res.status(409).json({ error: 'Selected time conflicts with an existing appointment' });
-      return;
-    }
+    let appointment;
+    try {
+      appointment = await prisma.$transaction(
+        async (tx) => {
+          const conflict = await hasSchedulingConflict(
+            tx,
+            service.clientId ?? null,
+            appointmentDate,
+            appointmentEndDate,
+            { incomingKind: 'session' }
+          );
+          if (conflict) {
+            const conflictError = new Error('SCHEDULING_CONFLICT');
+            conflictError.name = 'SchedulingConflictError';
+            throw conflictError;
+          }
 
-    let appointment = await prisma.appointment.create({
-      data: {
-        clientFirstName,
-        clientLastName,
-        email,
-        phone,
-        date: appointmentDate,
-        endDate: appointmentEndDate,
-        timezone: BOOKING_TIMEZONE,
-        serviceId,
-        states: 'pending',
-        paymentMethod: paymentMethod ?? null,
-        paymentStatus: paymentStatus ?? 'pending',
-        tipAmount: tipAmount ?? null,
-      },
-      include: { service: true },
-    });
+          return tx.appointment.create({
+            data: {
+              clientFirstName,
+              clientLastName,
+              email,
+              phone,
+              date: appointmentDate,
+              endDate: appointmentEndDate,
+              timezone: BOOKING_TIMEZONE,
+              serviceId,
+              kind: 'session',
+              states: 'pending',
+              paymentMethod: paymentMethod ?? null,
+              paymentStatus: paymentStatus ?? 'pending',
+              tipAmount: tipAmount ?? null,
+            },
+            include: { service: true },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      );
+    } catch (error) {
+      const prismaError = error as { code?: string; name?: string };
+      if (
+        prismaError.name === 'SchedulingConflictError' ||
+        prismaError.code === 'P2034'
+      ) {
+        res.status(409).json({ error: 'Selected time conflicts with an existing appointment' });
+        return;
+      }
+      throw error;
+    }
 
     const emailHtml = appointmentConfirmationTemplate({
       clientFirstName,
@@ -199,32 +239,27 @@ appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateApp
       serviceDescription: service.description,
       appointmentId: appointment.id,
     });
-    sendEmail(email, 'Appointment Confirmation', emailHtml).catch((err) => {
+    sendEmail(email, 'We received your appointment request', emailHtml).catch((err) => {
       console.error('Failed to send appointment confirmation email:', err);
     });
 
-    try {
-      await scheduleAppointmentReminder(appointment.id, appointment.date);
-    } catch (err) {
-      console.error('Failed to schedule appointment reminder:', err);
-    }
-
-    // Sync with Google Calendar when enabled.
-    try {
-      const calendarEventId = await upsertGoogleCalendarEvent(appointment, service);
-      if (calendarEventId && calendarEventId !== appointment.calendarEventId) {
-        appointment = await prisma.appointment.update({
-          where: { id: appointment.id },
-          data: { calendarEventId },
-          include: { service: true },
-        });
-      }
-    } catch (err) {
-      console.error('Failed to sync appointment to Google Calendar:', err);
-    }
-
     getBusinessOwnerEmailForNotification(service).then((ownerEmail) => {
       if (ownerEmail) {
+        let acceptUrl: string | null = null;
+        let denyUrl: string | null = null;
+        try {
+          const decisionToken = createBookingAccessToken({
+            appointmentId: appointment.id,
+            email: appointment.email,
+            purpose: 'decision',
+            ttlSeconds: DECISION_TOKEN_TTL_SECONDS,
+          });
+          acceptUrl = getAppointmentDecisionUrl(appointment.id, 'accept', decisionToken);
+          denyUrl = getAppointmentDecisionUrl(appointment.id, 'deny', decisionToken);
+        } catch (tokenError) {
+          console.error('Unable to create booking decision links:', tokenError);
+        }
+
         const ownerHtml = appointmentNotificationToOwnerTemplate({
           customerFirstName: clientFirstName,
           customerLastName: clientLastName,
@@ -233,6 +268,8 @@ appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateApp
           serviceTitle: service.title,
           date: appointmentDate,
           appointmentId: appointment.id,
+          acceptUrl,
+          denyUrl,
         });
         sendEmail(
           ownerEmail,
@@ -246,20 +283,7 @@ appointmentRouter.post('/', appointmentLimiter, captchaIfConfigured, validateApp
       console.error('Error getting business owner email for appointment notification:', err);
     });
 
-    let checkoutToken: string | null = null;
-    try {
-      checkoutToken = createBookingAccessToken({
-        appointmentId: appointment.id,
-        email: appointment.email,
-      });
-    } catch (_error) {
-      checkoutToken = null;
-    }
-
-    res.status(201).json({
-      ...appointment,
-      checkoutToken,
-    });
+    res.status(201).json(appointment);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Internal server error' });
@@ -322,6 +346,13 @@ appointmentRouter.get('/available', async (req: Request, res: Response): Promise
     });
     if (!service) {
       res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    if (isInquireOnlyService(service)) {
+      res.status(400).json({
+        error: 'This offering is inquire-only. Please use the contact form or the current circle flyer.',
+      });
       return;
     }
 
@@ -405,6 +436,219 @@ appointmentRouter.get('/available', async (req: Request, res: Response): Promise
   }
 });
 
+appointmentRouter.get('/:id/decision', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const appointmentId = req.params.id;
+    const action = typeof req.query.action === 'string' ? req.query.action.toLowerCase() : '';
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+
+    if (action !== 'accept' && action !== 'deny') {
+      sendDecisionResponse(req, res, 400, {
+        title: 'Invalid decision',
+        body: 'Use Accept or Deny from the booking email.',
+        ok: false,
+      });
+      return;
+    }
+    if (!token) {
+      sendDecisionResponse(req, res, 400, {
+        title: 'Missing link',
+        body: 'This decision link is incomplete. Open Accept or Deny from the original email.',
+        ok: false,
+      });
+      return;
+    }
+
+    const tokenValidation = verifyBookingAccessToken(token, {
+      expectedAppointmentId: appointmentId,
+      expectedPurpose: 'decision',
+    });
+    if (!tokenValidation.valid) {
+      sendDecisionResponse(req, res, 401, {
+        title: 'Link expired',
+        body: 'This Accept/Deny link is invalid or has expired. Ask for a new booking email if you still need to decide.',
+        ok: false,
+      });
+      return;
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { service: true },
+    });
+    if (!appointment || !appointment.service) {
+      sendDecisionResponse(req, res, 404, {
+        title: 'Booking not found',
+        body: 'That appointment is no longer in the system.',
+        ok: false,
+      });
+      return;
+    }
+
+    if (appointment.kind === 'circle') {
+      sendDecisionResponse(req, res, 400, {
+        title: 'Circle registrations',
+        body: 'Circle seats are reserved from the flyer and paid in person at the event.',
+        ok: false,
+      });
+      return;
+    }
+
+    if (action === 'accept') {
+      if (appointment.states === 'cancelled') {
+        sendDecisionResponse(req, res, 409, {
+          title: 'Already denied',
+          body: 'This booking was denied. The time is free for someone else.',
+          ok: false,
+        });
+        return;
+      }
+
+      let nextAppointment = appointment;
+      if (appointment.states !== 'confirmed') {
+        nextAppointment = await prisma.appointment.update({
+          where: { id: appointment.id },
+          data: { states: 'confirmed' },
+          include: { service: true },
+        });
+      }
+
+      let calendarSynced = false;
+      let calendarNote = 'Google Calendar could not be updated. Connect Google Calendar OAuth on the API, then accept again or resave this booking.';
+      try {
+        const calendarEventId = await upsertGoogleCalendarEvent(nextAppointment, nextAppointment.service);
+        if (calendarEventId) {
+          calendarSynced = true;
+          calendarNote = 'Google Calendar now has this session, including the customer name and service.';
+          if (calendarEventId !== nextAppointment.calendarEventId) {
+            nextAppointment = await prisma.appointment.update({
+              where: { id: nextAppointment.id },
+              data: { calendarEventId },
+              include: { service: true },
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync accepted appointment to Google Calendar:', err);
+      }
+
+      try {
+        await scheduleAppointmentReminder(nextAppointment.id, nextAppointment.date);
+      } catch (err) {
+        console.error('Failed to schedule appointment reminder:', err);
+      }
+
+      let paymentToken: string | null = null;
+      let payUrl: string | null = null;
+      try {
+        paymentToken = createBookingAccessToken({
+          appointmentId: nextAppointment.id,
+          email: nextAppointment.email,
+          purpose: 'checkout',
+          ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS,
+        });
+        payUrl = getBookingPayUrl(nextAppointment.id, paymentToken);
+      } catch (tokenError) {
+        console.error('Unable to create payment token after accept:', tokenError);
+      }
+
+      const emailHtml = appointmentAcceptedTemplate({
+        clientFirstName: nextAppointment.clientFirstName,
+        clientLastName: nextAppointment.clientLastName,
+        email: nextAppointment.email,
+        date: nextAppointment.date,
+        serviceTitle: nextAppointment.service.title,
+        appointmentId: nextAppointment.id,
+        payUrl,
+      });
+      sendEmail(nextAppointment.email, 'Your session is accepted — complete payment', emailHtml).catch((err) => {
+        console.error('Failed to send appointment accepted email:', err);
+      });
+
+      sendDecisionResponse(
+        req,
+        res,
+        200,
+        {
+          title: 'Booking accepted',
+          body: `${nextAppointment.clientFirstName} ${nextAppointment.clientLastName} is confirmed for ${nextAppointment.service.title}. They were emailed a payment link.`,
+          ok: true,
+          calendarNote,
+        },
+        {
+          id: nextAppointment.id,
+          states: nextAppointment.states,
+          calendarEventId: nextAppointment.calendarEventId,
+          calendarSynced,
+          paymentToken,
+        }
+      );
+      return;
+    }
+
+    if (appointment.states === 'cancelled') {
+      sendDecisionResponse(req, res, 200, {
+        title: 'Already denied',
+        body: 'This booking was already denied. The time is available again.',
+        ok: true,
+      });
+      return;
+    }
+
+    if (appointment.states === 'confirmed' && appointment.paymentStatus === 'paid') {
+      sendDecisionResponse(req, res, 409, {
+        title: 'Already paid',
+        body: 'This booking is already paid. Cancel it from the usual cancellation flow if needed.',
+        ok: false,
+      });
+      return;
+    }
+
+    await cancelAppointmentReminders(appointment.id);
+    if (appointment.calendarEventId) {
+      try {
+        await deleteGoogleCalendarEvent(appointment.calendarEventId);
+      } catch (err) {
+        console.error('Failed to delete denied appointment from Google Calendar:', err);
+      }
+    }
+
+    await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        states: 'cancelled',
+        cancelledAt: new Date(),
+        calendarEventId: null,
+      },
+    });
+
+    const denyHtml = appointmentDeniedTemplate({
+      clientFirstName: appointment.clientFirstName,
+      clientLastName: appointment.clientLastName,
+      email: appointment.email,
+      date: appointment.date,
+      serviceTitle: appointment.service.title,
+      appointmentId: appointment.id,
+    });
+    sendEmail(appointment.email, 'This requested time is not available', denyHtml).catch((err) => {
+      console.error('Failed to send appointment denied email:', err);
+    });
+
+    sendDecisionResponse(req, res, 200, {
+      title: 'Booking denied',
+      body: 'This request was declined. The time is free for another client, and the customer was emailed.',
+      ok: true,
+    });
+  } catch (error) {
+    console.error(error);
+    sendDecisionResponse(req, res, 500, {
+      title: 'Something went wrong',
+      body: 'The decision could not be saved. Try the email link again, or check the API logs.',
+      ok: false,
+    });
+  }
+});
+
 // Get a specific appointment
 appointmentRouter.get('/:id', adminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -465,10 +709,11 @@ appointmentRouter.put('/:id', adminAuth, validateAppointmentUpdate, async (req: 
 
     if (dateChanged) {
       const conflict = await hasSchedulingConflict(
+        prisma,
         existingAppointment.service.clientId ?? null,
         effectiveDate,
         nextEndDate,
-        existingAppointment.id
+        { excludeAppointmentId: existingAppointment.id, incomingKind: existingAppointment.kind || 'session' }
       );
       if (conflict) {
         res.status(409).json({ error: 'Selected time conflicts with an existing appointment' });
@@ -540,7 +785,7 @@ appointmentRouter.put('/:id', adminAuth, validateAppointmentUpdate, async (req: 
       }
     }
 
-    if (appointment.service && appointment.states !== 'cancelled') {
+    if (appointment.service && appointment.states === 'confirmed') {
       try {
         const calendarEventId = await upsertGoogleCalendarEvent(appointment, appointment.service);
         if (calendarEventId && calendarEventId !== appointment.calendarEventId) {
@@ -645,7 +890,8 @@ appointmentRouter.delete('/:id', adminAuth, async (req: Request, res: Response) 
     }
 
     await cancelAppointmentReminders(appointment.id);
-    if (appointment.calendarEventId) {
+    const isCircleSeat = appointment.kind === 'circle' && Boolean(appointment.circleFlyerId);
+    if (appointment.calendarEventId && !isCircleSeat) {
       try {
         await deleteGoogleCalendarEvent(appointment.calendarEventId);
       } catch (err) {
@@ -653,6 +899,9 @@ appointmentRouter.delete('/:id', adminAuth, async (req: Request, res: Response) 
       }
     }
     await prisma.appointment.delete({ where: { id: req.params.id } });
+    if (appointment.circleFlyerId) {
+      await syncFlyerGoogleCalendarSafe(appointment.circleFlyerId);
+    }
 
     if (appointment.service) {
       const emailHtml = appointmentCancellationTemplate({

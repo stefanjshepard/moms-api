@@ -103,8 +103,23 @@ export const createIntuitCheckoutSession = async (params: {
     throw new Error('Booking token does not match appointment owner.');
   }
 
+  if (appointment.states === 'cancelled') {
+    throw new Error('Cancelled bookings cannot be paid.');
+  }
+  if (appointment.paymentStatus === 'paid') {
+    throw new Error('This booking is already paid.');
+  }
+  const isCircle = appointment.kind === 'circle';
+  if (isCircle) {
+    throw new Error('Circle seats are paid in person at the event.');
+  }
+  if (appointment.states !== 'confirmed') {
+    throw new Error('This booking must be accepted before payment.');
+  }
+
   const tipAmount = params.tipAmount ?? appointment.tipAmount ?? 0;
-  const amount = Number((appointment.service.price + tipAmount).toFixed(2));
+  const baseAmount = appointment.quotedAmount ?? appointment.service.price;
+  const amount = Number((baseAmount + tipAmount).toFixed(2));
   const currency = params.currency ?? 'USD';
   const externalPaymentId = `intuit_${crypto.randomUUID()}`;
 
@@ -390,7 +405,8 @@ export const processIntuitWebhook = async (
     return { accepted: true, duplicate: false, eventId, status: 'appointment_not_found' };
   }
 
-  const expectedAmount = Number((appointment.service.price + (appointment.tipAmount ?? 0)).toFixed(2));
+  const baseAmount = appointment.quotedAmount ?? appointment.service.price;
+  const expectedAmount = Number((baseAmount + (appointment.tipAmount ?? 0)).toFixed(2));
   const receivedAmount = parseAmount(payload);
   const expectedCurrency = paymentTx.currency.toUpperCase();
   const receivedCurrency = parseCurrency(payload);
@@ -545,19 +561,21 @@ export const processIntuitWebhook = async (
     },
   });
 
-  if (!wasConfirmed && appointment.service) {
-    const html = appointmentConfirmedTemplate({
-      clientFirstName: appointment.clientFirstName,
-      clientLastName: appointment.clientLastName,
-      email: appointment.email,
-      date: appointment.date,
-      serviceTitle: appointment.service.title,
-      serviceDescription: appointment.service.description,
-      appointmentId: appointment.id,
-    });
-    sendEmail(appointment.email, 'Appointment Confirmed!', html).catch((err) => {
-      console.error('Failed to send payment confirmation email:', err);
-    });
+  if (appointment.service) {
+    if (!wasConfirmed) {
+      const html = appointmentConfirmedTemplate({
+        clientFirstName: appointment.clientFirstName,
+        clientLastName: appointment.clientLastName,
+        email: appointment.email,
+        date: appointment.date,
+        serviceTitle: appointment.service.title,
+        serviceDescription: appointment.service.description,
+        appointmentId: appointment.id,
+      });
+      sendEmail(appointment.email, 'Appointment Confirmed!', html).catch((err) => {
+        console.error('Failed to send payment confirmation email:', err);
+      });
+    }
 
     const ownerEmail =
       appointment.service.Client?.email || process.env.BUSINESS_OWNER_EMAIL || null;
@@ -574,7 +592,7 @@ export const processIntuitWebhook = async (
         amountPaid:
           (payload.amount as number | undefined) ??
           (payload.total as number | undefined) ??
-          appointment.service.price + (appointment.tipAmount ?? 0),
+          (appointment.quotedAmount ?? appointment.service.price) + (appointment.tipAmount ?? 0),
         currency:
           (payload.currency as string | undefined) ||
           ((payload.data as Record<string, unknown> | undefined)?.currency as string | undefined) ||

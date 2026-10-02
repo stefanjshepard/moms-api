@@ -182,7 +182,7 @@ describe('Email Service with Ethereal.email', () => {
       };
       const html = appointmentConfirmationTemplate(data);
 
-      expect(html).toContain('Appointment Confirmation');
+      expect(html).toContain('We received your request');
       expect(html).toContain('John');
       expect(html).toContain('Test Service');
       expect(html).toMatch(/<!DOCTYPE html>/i);
