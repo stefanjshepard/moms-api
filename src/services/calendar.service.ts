@@ -14,6 +14,10 @@ export interface CalendarEventPayload {
     dateTime: string;
     timeZone: string;
   };
+  attendees?: Array<{
+    email: string;
+    displayName?: string;
+  }>;
 }
 
 const DEFAULT_CALENDAR_ID = 'primary';
@@ -174,26 +178,68 @@ export const buildGoogleCalendarEventPayload = (
   };
 };
 
-export const upsertGoogleCalendarEvent = async (
-  appointment: Appointment,
-  service: Service
+export const buildCircleFlyerCalendarPayload = (params: {
+  title: string;
+  body: string;
+  eventStart: Date;
+  eventEnd: Date;
+  attendees: Array<{
+    clientFirstName: string;
+    clientLastName: string;
+    email: string;
+    phone?: string | null;
+  }>;
+}): CalendarEventPayload => {
+  const attendeeLines = params.attendees.map((attendee) => {
+    const name = `${attendee.clientFirstName} ${attendee.clientLastName}`.trim();
+    const phone = attendee.phone?.trim() || 'Not provided';
+    return `- ${name}\n  Email: ${attendee.email}\n  Phone: ${phone}`;
+  });
+  const attendeeBlock =
+    attendeeLines.length > 0 ? `Attendees:\n${attendeeLines.join('\n')}` : 'Attendees: none yet';
+  const description = [params.body, '', 'Pay in person at the event.', '', attendeeBlock].join('\n');
+  const invitees = params.attendees
+    .filter((attendee) => Boolean(attendee.email?.trim()))
+    .map((attendee) => ({
+      email: attendee.email.trim(),
+      displayName: `${attendee.clientFirstName} ${attendee.clientLastName}`.trim() || undefined,
+    }));
+
+  return {
+    summary: params.title,
+    description,
+    start: {
+      dateTime: params.eventStart.toISOString(),
+      timeZone: BOOKING_TIMEZONE_GOOGLE,
+    },
+    end: {
+      dateTime: params.eventEnd.toISOString(),
+      timeZone: BOOKING_TIMEZONE_GOOGLE,
+    },
+    attendees: invitees,
+  };
+};
+
+export const upsertGoogleCalendarEventPayload = async (
+  existingEventId: string | null | undefined,
+  payload: CalendarEventPayload
 ): Promise<string | null> => {
   const calendar = await getCalendarClient();
   if (!calendar) {
     return null;
   }
 
-  const payload = buildGoogleCalendarEventPayload(appointment, service);
   const calendarId = getConfiguredCalendarId();
 
-  if (appointment.calendarEventId) {
+  if (existingEventId) {
     try {
       await calendar.events.update({
         calendarId,
-        eventId: appointment.calendarEventId,
+        eventId: existingEventId,
+        sendUpdates: Array.isArray(payload.attendees) ? 'all' : 'none',
         requestBody: payload,
       });
-      return appointment.calendarEventId;
+      return existingEventId;
     } catch (error: any) {
       const status = error?.code || error?.response?.status;
       if (status !== 404) {
@@ -204,10 +250,21 @@ export const upsertGoogleCalendarEvent = async (
 
   const created = await calendar.events.insert({
     calendarId,
+    sendUpdates: Array.isArray(payload.attendees) ? 'all' : 'none',
     requestBody: payload,
   });
 
   return created.data.id ?? null;
+};
+
+export const upsertGoogleCalendarEvent = async (
+  appointment: Appointment,
+  service: Service
+): Promise<string | null> => {
+  return upsertGoogleCalendarEventPayload(
+    appointment.calendarEventId,
+    buildGoogleCalendarEventPayload(appointment, service)
+  );
 };
 
 export const deleteGoogleCalendarEvent = async (calendarEventId: string): Promise<void> => {
@@ -220,6 +277,7 @@ export const deleteGoogleCalendarEvent = async (calendarEventId: string): Promis
     await calendar.events.delete({
       calendarId: getConfiguredCalendarId(),
       eventId: calendarEventId,
+      sendUpdates: 'all',
     });
   } catch (error: any) {
     const status = error?.code || error?.response?.status;

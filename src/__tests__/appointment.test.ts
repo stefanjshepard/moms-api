@@ -130,7 +130,7 @@ describe('Appointment Routes', () => {
 
     it('should filter appointments by date range', async () => {
       const firstDate = getValidMstBookingDate();
-      const secondDate = getValidMstBookingDate(11, 3);
+      const secondDate = getValidMstBookingDate(10, 10);
 
       await prisma.appointment.create({
         data: {

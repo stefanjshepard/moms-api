@@ -63,8 +63,10 @@ model Appointment {
   calendarEventId String?
   /// session = 1:1 booking; circle = flyer registration (multiple people may share a time)
   kind            String   @default("session")
-  /// When set, checkout uses this amount instead of Service.price (circle flyers).
+  /// Display/in-person amount for circles; 1:1 checkout uses this when set.
   quotedAmount    Float?
+  circleFlyerId   String?
+  circleFlyer     CircleFlyer? @relation(fields: [circleFlyerId], references: [id], onDelete: SetNull)
   cancelledAt     DateTime?
   rescheduledAt   DateTime?
   reminderJobs    ReminderJob[]
@@ -82,7 +84,9 @@ model CircleFlyer {
   serviceId                String?
   service                  Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   availabilityExceptionId  String?
+  calendarEventId          String?
   createdAt                DateTime @default(now())
+  appointments             Appointment[]
 }
 
 model ContactRequest {

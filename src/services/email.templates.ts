@@ -825,11 +825,6 @@ export const circleRegistrationToCustomerTemplate = (data: AppointmentData): str
     minute: '2-digit',
     timeZoneName: 'short',
   });
-  const payButton = data.payUrl
-    ? `<p style="margin: 24px 0;">
-        <a href="${escapeHtml(data.payUrl)}" style="display:inline-block;background:#2f6f5e;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:999px;">Pay for this circle</a>
-      </p>`
-    : '';
 
   return `
     <!DOCTYPE html>
@@ -847,16 +842,15 @@ export const circleRegistrationToCustomerTemplate = (data: AppointmentData): str
     <body>
       <div class="container">
         <div class="header">
-          <h1>Circle registration received</h1>
+          <h1>Your circle seat is reserved</h1>
         </div>
         <div class="content">
           <p>Hi ${escapeHtml(data.clientFirstName)},</p>
-          <p>Your seat request for this Sistership Circle is in. Complete payment with the button below. This beta checkout is labeled as a demo until live cards are enabled.</p>
+          <p>Your seat for this Sistership Circle is reserved. Payment is in person at the event — there is nothing to pay online.</p>
           <div class="details">
             <p><strong>Circle:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
           </div>
-          ${payButton}
         </div>
         <div class="footer">
           <p>This is an automated message from Oneness Center.</p>
@@ -898,10 +892,10 @@ export const circleRegistrationToOwnerTemplate = (data: AppointmentNotificationT
     <body>
       <div class="container">
         <div class="header">
-          <h1>Circle seat requested</h1>
+          <h1>Circle seat reserved</h1>
         </div>
         <div class="content">
-          <p>Someone requested a seat for a published Sistership Circle flyer.</p>
+          <p>Someone reserved a seat for a published Sistership Circle. Payment is in person at the event. They are invited to the Google Calendar event, with name, email, and phone in the event details.</p>
           <div class="details">
             <p><strong>Circle:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date &amp; time:</strong> ${formattedDate}</p>

@@ -93,6 +93,10 @@ paymentRouter.post('/intuit/checkout-session', paymentLimiter, async (req: Reque
       res.status(409).json({ error: message });
       return;
     }
+    if (message === 'Circle seats are paid in person at the event.') {
+      res.status(400).json({ error: message });
+      return;
+    }
     res.status(500).json({ error: message });
   }
 });

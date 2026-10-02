@@ -24,6 +24,8 @@ tags:
   - name: Integrations
   - name: Payments
   - name: Webhooks
+  - name: Flyers
+  - name: Admin Flyers
 
 paths:
   /:
@@ -80,7 +82,10 @@ paths:
       summary: Create appointment
       description: >
         Enforces scheduling policy (Mon-Fri, 9am-5pm MST, 24h advance),
-        overlap protection, and reminder scheduling.
+        overlap protection, and reminder scheduling. Inquire-only services
+        (Sistership Circle) cannot be booked here. 1:1 creates stay pending
+        until the owner Accept/Deny email; checkoutToken is not returned.
+        Circle seats use POST /flyers/{id}/register and are paid in person.
       operationId: createAppointment
       requestBody:
         required: true
@@ -233,6 +238,65 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+
+  /appointments/{id}/decision:
+    get:
+      tags: [Appointments]
+      summary: Accept or deny a 1:1 booking from the owner email
+      description: >
+        Tokenized owner decision. HTML by default so the email link can be opened
+        in a browser. Pass format=json or Accept application/json for API clients.
+        Circle registrations cannot be decided here. Accept writes the 1:1 session
+        to Google Calendar and emails the customer a checkout link. Deny frees the slot.
+      operationId: decideAppointment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - in: query
+          name: action
+          required: true
+          schema:
+            type: string
+            enum: [accept, deny]
+        - in: query
+          name: token
+          required: true
+          schema:
+            type: string
+          description: Decision token from the owner booking email (14-day TTL).
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        "200":
+          description: Decision saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentDecisionResponse"
+            text/html:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Appointment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Decision is not allowed in the current booking state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /appointments/{id}/confirm:
     put:
       tags: [Appointments]
@@ -268,7 +332,10 @@ paths:
   /payments/intuit/checkout-session:
     post:
       tags: [Payments]
-      summary: Create Intuit checkout session for appointment
+      summary: Create Intuit checkout session for a 1:1 appointment
+      description: >
+        1:1 only, after the owner has accepted. Circle seats are paid in person
+        at the event and return 400 here.
       operationId: createIntuitCheckoutSession
       parameters:
         - in: header
@@ -651,6 +718,67 @@ paths:
                 $ref: "#/components/schemas/BlogPost"
         "404":
           description: Blog post not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+
+  /flyers/current:
+    get:
+      tags: [Flyers]
+      summary: Get the current published circle flyer
+      description: Returns the latest published Sistership Circle flyer, or null.
+      operationId: getCurrentCircleFlyer
+      responses:
+        "200":
+          description: Current flyer or null
+          content:
+            application/json:
+              schema:
+                nullable: true
+                allOf:
+                  - $ref: "#/components/schemas/CircleFlyer"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /flyers/{id}/register:
+    post:
+      tags: [Flyers]
+      summary: Reserve a circle seat
+      description: >
+        Confirms a seat for the published flyer. Payment is in person at the event;
+        no Intuit checkout token is issued. The flyer Google Calendar event is
+        updated with name, email, and phone from this form, and the registrant is
+        added as an invitee. Multiple circle seats may share the same time.
+      operationId: registerForCircleFlyer
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CircleFlyerRegisterRequest"
+      responses:
+        "201":
+          description: Seat reserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No published flyer found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Circle time overlaps a private session
           content:
             application/json:
               schema:
@@ -1172,6 +1300,96 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+
+  /admin/flyers:
+    get:
+      tags: [Admin Flyers]
+      summary: List circle flyers
+      operationId: adminListCircleFlyers
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Flyer list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CircleFlyer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Admin Flyers]
+      summary: Create a circle flyer
+      description: >
+        Publishing a flyer blocks that window on the 1:1 scheduler and upserts a
+        Google Calendar event for the circle date. Only one flyer is published at a time.
+        Unpublishing keeps the calendar event while seats remain.
+      operationId: adminCreateCircleFlyer
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CircleFlyerWriteRequest"
+      responses:
+        "201":
+          description: Flyer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CircleFlyer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /admin/flyers/{id}:
+    patch:
+      tags: [Admin Flyers]
+      summary: Update a circle flyer
+      description: >
+        Date changes update reserved circle appointments and the Google Calendar event.
+        Unpublishing keeps the calendar event while seats remain; it is removed when
+        no seats are left.
+      operationId: adminUpdateCircleFlyer
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CircleFlyerPatchRequest"
+      responses:
+        "200":
+          description: Flyer updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CircleFlyer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Flyer not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /admin/email/verify:
     post:
       tags: [Admin Email]
@@ -1402,6 +1620,11 @@ components:
           type: string
           format: uuid
           nullable: true
+        bookingMode:
+          type: string
+          enum: [appointment, inquire]
+          default: appointment
+          description: inquire services cannot be booked on POST /appointments.
       required:
         [id, title, description, price, durationMinutes, bufferMinutes, isPublished]
 
@@ -1474,6 +1697,18 @@ components:
         calendarEventId:
           type: string
           nullable: true
+        kind:
+          type: string
+          enum: [session, circle]
+          default: session
+        quotedAmount:
+          type: number
+          nullable: true
+          description: In-person circle price, or 1:1 checkout amount when set.
+        circleFlyerId:
+          type: string
+          format: uuid
+          nullable: true
         cancelledAt:
           type: string
           format: date-time
@@ -1516,7 +1751,7 @@ components:
           format: uuid
         paymentMethod:
           type: string
-          enum: [venmo, credit_card]
+          enum: [venmo, credit_card, in_person]
         paymentStatus:
           type: string
           enum: [pending, paid]
@@ -1544,12 +1779,147 @@ components:
           enum: [pending, confirmed, cancelled]
         paymentMethod:
           type: string
-          enum: [venmo, credit_card]
+          enum: [venmo, credit_card, in_person]
         paymentStatus:
           type: string
           enum: [pending, paid]
         tipAmount:
           type: number
+
+
+    AppointmentDecisionResponse:
+      type: object
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+        ok:
+          type: boolean
+        id:
+          type: string
+          format: uuid
+        states:
+          type: string
+        calendarEventId:
+          type: string
+          nullable: true
+        calendarSynced:
+          type: boolean
+        paymentToken:
+          type: string
+          nullable: true
+      required: [title, message, ok]
+
+    CircleFlyer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        body:
+          type: string
+        eventStart:
+          type: string
+          format: date-time
+        eventEnd:
+          type: string
+          format: date-time
+        price:
+          type: number
+          description: Amount collected in person at the event.
+        isPublished:
+          type: boolean
+        serviceId:
+          type: string
+          format: uuid
+          nullable: true
+        availabilityExceptionId:
+          type: string
+          nullable: true
+        calendarEventId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        service:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Service"
+      required: [id, title, body, eventStart, eventEnd, price, isPublished]
+
+    CircleFlyerWriteRequest:
+      type: object
+      required: [title, body, eventStart, eventEnd, price]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+        body:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        eventStart:
+          type: string
+          format: date-time
+        eventEnd:
+          type: string
+          format: date-time
+        price:
+          type: number
+          minimum: 0
+        serviceId:
+          type: string
+          format: uuid
+        isPublished:
+          type: boolean
+          default: true
+
+    CircleFlyerPatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        eventStart:
+          type: string
+          format: date-time
+        eventEnd:
+          type: string
+          format: date-time
+        price:
+          type: number
+          minimum: 0
+        serviceId:
+          type: string
+          format: uuid
+          nullable: true
+        isPublished:
+          type: boolean
+
+    CircleFlyerRegisterRequest:
+      type: object
+      required: [clientFirstName, clientLastName, email, phone]
+      properties:
+        clientFirstName:
+          type: string
+          minLength: 2
+          maxLength: 50
+        clientLastName:
+          type: string
+          minLength: 2
+          maxLength: 50
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
 
     AppointmentConfirmRequest:
       type: object

@@ -9,10 +9,13 @@ import {
   circleRegistrationToCustomerTemplate,
   circleRegistrationToOwnerTemplate,
 } from '../services/email.templates';
-import { CHECKOUT_TOKEN_TTL_SECONDS, createBookingAccessToken } from '../services/booking-token.service';
 import { hasSchedulingConflict } from '../services/scheduling-conflict.service';
-import { getBookingPayUrl } from '../services/urls.service';
 import { BOOKING_TIMEZONE } from '../services/scheduling.service';
+import {
+  buildCircleFlyerCalendarPayload,
+  deleteGoogleCalendarEvent,
+  upsertGoogleCalendarEventPayload,
+} from '../services/calendar.service';
 
 const flyerRouter = express.Router();
 const prisma = new PrismaClient();
@@ -80,6 +83,7 @@ async function unpublishOtherFlyers(exceptId?: string): Promise<void> {
       isPublished: false,
       existingExceptionId: flyer.availabilityExceptionId,
     });
+    await syncFlyerGoogleCalendarSafe(flyer.id);
   }
 }
 
@@ -147,6 +151,64 @@ async function syncFlyerException(params: {
     data: { availabilityExceptionId: created.id },
   });
   return created.id;
+}
+
+async function syncFlyerGoogleCalendar(flyerId: string): Promise<void> {
+  const flyer = await prisma.circleFlyer.findUnique({ where: { id: flyerId } });
+  if (!flyer) {
+    return;
+  }
+
+  const attendees = await prisma.appointment.findMany({
+    where: {
+      circleFlyerId: flyer.id,
+      kind: 'circle',
+      states: { not: 'cancelled' },
+    },
+    orderBy: [{ clientLastName: 'asc' }, { clientFirstName: 'asc' }],
+    select: {
+      clientFirstName: true,
+      clientLastName: true,
+      email: true,
+      phone: true,
+    },
+  });
+
+  if (!flyer.isPublished && attendees.length === 0) {
+    if (flyer.calendarEventId) {
+      await deleteGoogleCalendarEvent(flyer.calendarEventId);
+      await prisma.circleFlyer.update({
+        where: { id: flyer.id },
+        data: { calendarEventId: null },
+      });
+    }
+    return;
+  }
+
+  const eventId = await upsertGoogleCalendarEventPayload(
+    flyer.calendarEventId,
+    buildCircleFlyerCalendarPayload({
+      title: flyer.title,
+      body: flyer.body,
+      eventStart: flyer.eventStart,
+      eventEnd: flyer.eventEnd,
+      attendees,
+    })
+  );
+  if (eventId && eventId !== flyer.calendarEventId) {
+    await prisma.circleFlyer.update({
+      where: { id: flyer.id },
+      data: { calendarEventId: eventId },
+    });
+  }
+}
+
+export async function syncFlyerGoogleCalendarSafe(flyerId: string): Promise<void> {
+  try {
+    await syncFlyerGoogleCalendar(flyerId);
+  } catch (error) {
+    console.error('Failed to sync circle flyer to Google Calendar:', error);
+  }
 }
 
 flyerRouter.get('/current', async (_req: Request, res: Response): Promise<void> => {
@@ -231,6 +293,8 @@ flyerRouter.post('/', async (req: Request, res: Response): Promise<void> => {
       existingExceptionId: null,
     });
 
+    await syncFlyerGoogleCalendarSafe(flyer.id);
+
     const saved = await prisma.circleFlyer.findUnique({
       where: { id: flyer.id },
       include: { service: true },
@@ -288,6 +352,11 @@ flyerRouter.patch('/:id', async (req: Request, res: Response): Promise<void> => 
       },
     });
 
+    await prisma.appointment.updateMany({
+      where: { circleFlyerId: existing.id, kind: 'circle', states: { not: 'cancelled' } },
+      data: { date: eventStart, endDate: eventEnd },
+    });
+
     await syncFlyerException({
       flyerId: existing.id,
       clientId: existing.service?.clientId ?? null,
@@ -296,6 +365,8 @@ flyerRouter.patch('/:id', async (req: Request, res: Response): Promise<void> => 
       isPublished,
       existingExceptionId: existing.availabilityExceptionId,
     });
+
+    await syncFlyerGoogleCalendarSafe(existing.id);
 
     const saved = await prisma.circleFlyer.findUnique({
       where: { id: existing.id },
@@ -357,10 +428,11 @@ flyerRouter.post(
                 timezone: BOOKING_TIMEZONE,
                 serviceId: flyer.serviceId as string,
                 kind: 'circle',
+                circleFlyerId: flyer.id,
                 quotedAmount: flyer.price,
-                states: 'pending',
+                states: 'confirmed',
                 paymentStatus: 'pending',
-                paymentMethod: 'credit_card',
+                paymentMethod: 'in_person',
               },
               include: { service: true },
             });
@@ -378,19 +450,7 @@ flyerRouter.post(
         throw createError;
       }
 
-      let checkoutToken: string | null = null;
-      let payUrl: string | null = null;
-      try {
-        checkoutToken = createBookingAccessToken({
-          appointmentId: appointment.id,
-          email: appointment.email,
-          purpose: 'checkout',
-          ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS,
-        });
-        payUrl = getBookingPayUrl(appointment.id, checkoutToken);
-      } catch (tokenError) {
-        console.error('Unable to create circle checkout token:', tokenError);
-      }
+      await syncFlyerGoogleCalendarSafe(flyer.id);
 
       sendEmail(
         appointment.email,
@@ -402,7 +462,6 @@ flyerRouter.post(
           date: appointment.date,
           serviceTitle: flyer.title,
           appointmentId: appointment.id,
-          payUrl,
         })
       ).catch((err) => {
         console.error('Failed to send circle registration email:', err);
@@ -431,10 +490,7 @@ flyerRouter.post(
         console.error('Error getting owner email for circle registration:', err);
       });
 
-      res.status(201).json({
-        ...appointment,
-        checkoutToken,
-      });
+      res.status(201).json(appointment);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Failed to register for this circle' });

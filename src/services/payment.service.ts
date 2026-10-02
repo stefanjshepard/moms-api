@@ -110,7 +110,10 @@ export const createIntuitCheckoutSession = async (params: {
     throw new Error('This booking is already paid.');
   }
   const isCircle = appointment.kind === 'circle';
-  if (!isCircle && appointment.states !== 'confirmed') {
+  if (isCircle) {
+    throw new Error('Circle seats are paid in person at the event.');
+  }
+  if (appointment.states !== 'confirmed') {
     throw new Error('This booking must be accepted before payment.');
   }
 

@@ -34,6 +34,7 @@ import {
   deleteGoogleCalendarEvent,
   upsertGoogleCalendarEvent,
 } from '../services/calendar.service';
+import { syncFlyerGoogleCalendarSafe } from './flyer.routes';
 import { adminAuth } from '../middleware/auth';
 import {
   CHECKOUT_TOKEN_TTL_SECONDS,
@@ -487,7 +488,7 @@ appointmentRouter.get('/:id/decision', async (req: Request, res: Response): Prom
     if (appointment.kind === 'circle') {
       sendDecisionResponse(req, res, 400, {
         title: 'Circle registrations',
-        body: 'Circle seats are not accepted or denied from this link. They are inquired and paid from the flyer.',
+        body: 'Circle seats are reserved from the flyer and paid in person at the event.',
         ok: false,
       });
       return;
@@ -889,7 +890,8 @@ appointmentRouter.delete('/:id', adminAuth, async (req: Request, res: Response) 
     }
 
     await cancelAppointmentReminders(appointment.id);
-    if (appointment.calendarEventId) {
+    const isCircleSeat = appointment.kind === 'circle' && Boolean(appointment.circleFlyerId);
+    if (appointment.calendarEventId && !isCircleSeat) {
       try {
         await deleteGoogleCalendarEvent(appointment.calendarEventId);
       } catch (err) {
@@ -897,6 +899,9 @@ appointmentRouter.delete('/:id', adminAuth, async (req: Request, res: Response) 
       }
     }
     await prisma.appointment.delete({ where: { id: req.params.id } });
+    if (appointment.circleFlyerId) {
+      await syncFlyerGoogleCalendarSafe(appointment.circleFlyerId);
+    }
 
     if (appointment.service) {
       const emailHtml = appointmentCancellationTemplate({
