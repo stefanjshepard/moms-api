@@ -335,7 +335,8 @@ paths:
       summary: Create Intuit checkout session for a 1:1 appointment
       description: >
         1:1 only, after the owner has accepted. Circle seats are paid in person
-        at the event and return 400 here.
+        at the event and return 400 here. Default INTUIT_PAYMENT_MODE is mock.
+        Mode qbo creates a QuickBooks invoice and returns the Pay Now InvoiceLink.
       operationId: createIntuitCheckoutSession
       parameters:
         - in: header
@@ -2121,6 +2122,9 @@ components:
           type: string
         status:
           type: string
+        mode:
+          type: string
+          enum: [mock, qbo, live]
       required: [provider, externalPaymentId, checkoutUrl, amount, currency, status]
 
     IntuitWebhookProcessResponse:

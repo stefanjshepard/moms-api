@@ -59,15 +59,27 @@ const verifyIntuitSignature = (params: {
     return { ok: false, reason: 'missing_signature' };
   }
 
-  const timestamp = params.timestampHeader ? Number(params.timestampHeader) : NaN;
-  if (!params.timestampHeader || Number.isNaN(timestamp) || !Number.isFinite(timestamp)) {
+  const body = params.rawBody.toString('utf8');
+  // Official QBO webhooks: HMAC-SHA256 of the raw payload, Base64, header intuit-signature.
+  // Existing tests also send intuit-timestamp with HMAC of `${timestamp}.${body}`.
+  if (!params.timestampHeader) {
+    const digestBase64 = crypto.createHmac('sha256', secret).update(params.rawBody).digest('base64');
+    const isValid = signatures.some((provided) => timingSafeEquals(provided, digestBase64));
+    if (!isValid) {
+      return { ok: false, reason: 'signature_mismatch' };
+    }
+    const signatureHash = crypto.createHash('sha256').update(signatures[0]).digest('hex');
+    return { ok: true, signatureHash };
+  }
+
+  const timestamp = Number(params.timestampHeader);
+  if (Number.isNaN(timestamp) || !Number.isFinite(timestamp)) {
     return { ok: false, reason: 'invalid_timestamp' };
   }
   if (!isWithinReplayWindow(timestamp)) {
     return { ok: false, reason: 'timestamp_outside_replay_window' };
   }
 
-  const body = params.rawBody.toString('utf8');
   const baseString = `${timestamp}.${body}`;
   const digestBase64 = crypto
     .createHmac('sha256', secret)

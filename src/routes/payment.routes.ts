@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import Joi from 'joi';
 import { createIntuitCheckoutSession } from '../services/payment.service';
+import { IntuitQboError } from '../services/intuit-qbo.service';
 import { verifyBookingAccessToken } from '../services/booking-token.service';
 import { paymentLimiter } from '../middleware/rateLimit';
 import { recordSecurityAuditEvent } from '../services/security-audit.service';
@@ -95,6 +96,10 @@ paymentRouter.post('/intuit/checkout-session', paymentLimiter, async (req: Reque
     }
     if (message === 'Circle seats are paid in person at the event.') {
       res.status(400).json({ error: message });
+      return;
+    }
+    if (error instanceof IntuitQboError) {
+      res.status(error.statusCode).json({ error: error.message });
       return;
     }
     res.status(500).json({ error: message });

@@ -4,6 +4,12 @@ import axios from 'axios';
 import { appointmentConfirmedTemplate } from './email.templates';
 import { sendEmail } from './email.service';
 import { getAccessTokenForProvider } from './oauth/oauth.service';
+import {
+  createQboInvoiceCheckout,
+  getQboInvoice,
+  getQboPayment,
+  IntuitQboError,
+} from './intuit-qbo.service';
 import { appointmentPaymentReceiptToOwnerTemplate } from './email.templates';
 import { recordSecurityAuditEvent } from './security-audit.service';
 import { sendSecurityAlert } from './security-alert.service';
@@ -76,6 +82,22 @@ const parseAmount = (payload: Record<string, unknown>): number | null => {
   return null;
 };
 
+type PaymentMode = 'mock' | 'qbo' | 'live';
+
+const getPaymentMode = (): PaymentMode => {
+  const raw = (process.env.INTUIT_PAYMENT_MODE || 'mock').trim().toLowerCase();
+  if (raw === 'qbo') {
+    return 'qbo';
+  }
+  if (raw === 'live') {
+    return 'live';
+  }
+  return 'mock';
+};
+
+const isInvoicePaid = (balance: number | undefined): boolean =>
+  typeof balance === 'number' && Number(balance.toFixed(2)) === 0;
+
 export const createIntuitCheckoutSession = async (params: {
   appointmentId: string;
   bookingEmail?: string;
@@ -88,6 +110,7 @@ export const createIntuitCheckoutSession = async (params: {
   amount: number;
   currency: string;
   status: string;
+  mode: PaymentMode;
 }> => {
   const appointment = await prisma.appointment.findUnique({
     where: { id: params.appointmentId },
@@ -123,9 +146,44 @@ export const createIntuitCheckoutSession = async (params: {
   const currency = params.currency ?? 'USD';
   const externalPaymentId = `intuit_${crypto.randomUUID()}`;
 
-  const mode = process.env.INTUIT_PAYMENT_MODE || 'mock';
+  const existingPending = await prisma.paymentTransaction.findFirst({
+    where: {
+      appointmentId: appointment.id,
+      provider: INTUIT_PROVIDER,
+      status: 'pending',
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (existingPending?.checkoutUrl) {
+    return {
+      provider: INTUIT_PROVIDER,
+      externalPaymentId: existingPending.externalPaymentId,
+      checkoutUrl: existingPending.checkoutUrl,
+      amount: existingPending.amount,
+      currency: existingPending.currency,
+      status: 'pending',
+      mode: getPaymentMode(),
+    };
+  }
+
+  const mode = getPaymentMode();
   let checkoutResult: IntuitCheckoutResult;
-  if (mode === 'live') {
+  if (mode === 'qbo') {
+    const invoice = await createQboInvoiceCheckout({
+      appointmentId: appointment.id,
+      email: appointment.email,
+      firstName: appointment.clientFirstName,
+      lastName: appointment.clientLastName,
+      description: `${appointment.service.title} appointment`,
+      amount,
+      currency,
+    });
+    checkoutResult = {
+      externalPaymentId: invoice.invoiceId,
+      checkoutUrl: invoice.checkoutUrl,
+      raw: invoice.raw,
+    };
+  } else if (mode === 'live') {
     const token = await getAccessTokenForProvider('intuit');
     if (!token) {
       throw new Error('Intuit is not connected. Complete OAuth before creating checkout sessions.');
@@ -218,13 +276,311 @@ export const createIntuitCheckoutSession = async (params: {
     amount,
     currency,
     status: 'pending',
+    mode,
   };
+};
+
+type QboWebhookEntity = {
+  name?: string;
+  id?: string;
+  operation?: string;
+  lastUpdated?: string;
+};
+
+type QboEventNotification = {
+  realmId?: string;
+  dataChangeEvent?: { entities?: QboWebhookEntity[] };
+};
+
+const deriveQboEventId = (notifications: QboEventNotification[]): string | null => {
+  const parts = notifications.flatMap((notification) =>
+    (notification.dataChangeEvent?.entities ?? []).map(
+      (entity) =>
+        `${notification.realmId ?? ''}:${entity.name ?? ''}:${entity.id ?? ''}:${entity.operation ?? ''}:${entity.lastUpdated ?? ''}`
+    )
+  );
+  const joined = parts.filter(Boolean).join('|');
+  return joined ? joined.slice(0, 250) : null;
+};
+
+const confirmPaidBooking = async (params: {
+  eventId: string;
+  eventType: string;
+  paymentTx: { id: string; appointmentId: string; status: string; currency: string };
+  appointment: {
+    id: string;
+    states: string;
+    clientFirstName: string;
+    clientLastName: string;
+    email: string;
+    phone: string | null;
+    date: Date;
+    quotedAmount: number | null;
+    tipAmount: number | null;
+    paymentExternalId: string | null;
+    service: {
+      title: string;
+      description: string;
+      price: number;
+      Client: { email: string | null } | null;
+    };
+  };
+  receivedAmount: number;
+  receivedCurrency: string;
+  paymentExternalId: string;
+  payload: Record<string, unknown>;
+}): Promise<{ accepted: boolean; duplicate: boolean; eventId: string; status: string }> => {
+  const { paymentTx, appointment, eventId, eventType } = params;
+  if (paymentTx.status !== 'pending') {
+    await prisma.integrationWebhookEvent.update({
+      where: {
+        provider_eventExternalId: {
+          provider: INTUIT_PROVIDER,
+          eventExternalId: eventId,
+        },
+      },
+      data: { processedAt: new Date() },
+    });
+    return { accepted: true, duplicate: false, eventId, status: 'already_paid' };
+  }
+
+  const wasConfirmed = appointment.states === 'confirmed';
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentTransaction.update({
+      where: { id: paymentTx.id },
+      data: {
+        status: 'paid',
+        metadata: params.payload as Prisma.InputJsonValue,
+      },
+    });
+
+    await tx.appointment.update({
+      where: { id: appointment.id },
+      data: {
+        states: 'confirmed',
+        paymentStatus: 'paid',
+        paymentMethod: 'credit_card',
+        paymentProvider: INTUIT_PROVIDER,
+        paymentExternalId: params.paymentExternalId,
+      },
+    });
+
+    await tx.integrationWebhookEvent.update({
+      where: {
+        provider_eventExternalId: {
+          provider: INTUIT_PROVIDER,
+          eventExternalId: eventId,
+        },
+      },
+      data: { processedAt: new Date() },
+    });
+  });
+
+  await recordSecurityAuditEvent({
+    eventType: 'payment.confirmed',
+    outcome: 'accepted',
+    severity: 'info',
+    provider: INTUIT_PROVIDER,
+    appointmentId: appointment.id,
+    paymentTransactionId: paymentTx.id,
+    metadata: {
+      eventId,
+      eventType,
+      amount: params.receivedAmount,
+      currency: params.receivedCurrency,
+    },
+  });
+
+  if (!wasConfirmed) {
+    const html = appointmentConfirmedTemplate({
+      clientFirstName: appointment.clientFirstName,
+      clientLastName: appointment.clientLastName,
+      email: appointment.email,
+      date: appointment.date,
+      serviceTitle: appointment.service.title,
+      serviceDescription: appointment.service.description,
+      appointmentId: appointment.id,
+    });
+    sendEmail(appointment.email, 'Appointment Confirmed!', html).catch((err) => {
+      console.error('Failed to send payment confirmation email:', err);
+    });
+  }
+
+  const ownerEmail = appointment.service.Client?.email || process.env.BUSINESS_OWNER_EMAIL || null;
+  if (ownerEmail) {
+    const ownerReceiptHtml = appointmentPaymentReceiptToOwnerTemplate({
+      customerFirstName: appointment.clientFirstName,
+      customerLastName: appointment.clientLastName,
+      customerEmail: appointment.email,
+      customerPhone: appointment.phone ?? null,
+      serviceTitle: appointment.service.title,
+      date: appointment.date,
+      appointmentId: appointment.id,
+      paymentExternalId: params.paymentExternalId,
+      amountPaid: params.receivedAmount,
+      currency: params.receivedCurrency,
+    });
+    sendEmail(
+      ownerEmail,
+      `Payment received: ${appointment.clientFirstName} ${appointment.clientLastName}`,
+      ownerReceiptHtml
+    ).catch((err) => {
+      console.error('Failed to send owner payment receipt email:', err);
+    });
+  }
+
+  return { accepted: true, duplicate: false, eventId, status: 'confirmed' };
+};
+
+const confirmFromQboInvoiceId = async (
+  invoiceId: string,
+  eventId: string,
+  payload: Record<string, unknown>
+): Promise<{ accepted: boolean; duplicate: boolean; eventId: string; status: string } | null> => {
+  const paymentTx = await prisma.paymentTransaction.findUnique({
+    where: { externalPaymentId: invoiceId },
+  });
+  if (!paymentTx) {
+    return null;
+  }
+
+  let invoice;
+  try {
+    invoice = await getQboInvoice(invoiceId);
+  } catch (error) {
+    if (error instanceof IntuitQboError && error.statusCode === 404) {
+      return { accepted: true, duplicate: false, eventId, status: 'ignored' };
+    }
+    throw error;
+  }
+
+  if (!isInvoicePaid(invoice.Balance)) {
+    await prisma.integrationWebhookEvent.update({
+      where: {
+        provider_eventExternalId: {
+          provider: INTUIT_PROVIDER,
+          eventExternalId: eventId,
+        },
+      },
+      data: { processedAt: new Date() },
+    });
+    return { accepted: true, duplicate: false, eventId, status: 'invoice_unpaid' };
+  }
+
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: paymentTx.appointmentId },
+    include: { service: { include: { Client: true } } },
+  });
+  if (!appointment?.service) {
+    return { accepted: true, duplicate: false, eventId, status: 'appointment_not_found' };
+  }
+
+  const receivedAmount =
+    typeof invoice.TotalAmt === 'number' ? Number(invoice.TotalAmt.toFixed(2)) : paymentTx.amount;
+  const receivedCurrency = (invoice.CurrencyRef?.value || paymentTx.currency).toUpperCase();
+  const expectedAmount = Number(
+    ((appointment.quotedAmount ?? appointment.service.price) + (appointment.tipAmount ?? 0)).toFixed(2)
+  );
+  if (receivedAmount !== expectedAmount || receivedCurrency !== paymentTx.currency.toUpperCase()) {
+    return {
+      accepted: false,
+      duplicate: false,
+      eventId,
+      status: 'amount_or_currency_mismatch',
+    };
+  }
+
+  return confirmPaidBooking({
+    eventId,
+    eventType: 'qbo.invoice.paid',
+    paymentTx,
+    appointment,
+    receivedAmount,
+    receivedCurrency,
+    paymentExternalId: invoiceId,
+    payload,
+  });
+};
+
+const processQboEventNotifications = async (
+  payload: Record<string, unknown>,
+  eventId: string
+): Promise<{ accepted: boolean; duplicate: boolean; eventId: string; status: string }> => {
+  const notifications = payload.eventNotifications as QboEventNotification[];
+  const integrationConnection = await prisma.integrationConnection.findUnique({
+    where: {
+      provider_ownerKey: {
+        provider: INTUIT_PROVIDER,
+        ownerKey: 'global',
+      },
+    },
+  });
+  const expectedRealmId =
+    ((integrationConnection?.metadata as Record<string, unknown> | null)?.realmId as string | undefined) ??
+    undefined;
+
+  let lastStatus = 'ignored';
+  for (const notification of notifications) {
+    if (expectedRealmId && notification.realmId && notification.realmId !== expectedRealmId) {
+      lastStatus = 'realm_mismatch';
+      continue;
+    }
+    for (const entity of notification.dataChangeEvent?.entities ?? []) {
+      const name = (entity.name || '').toLowerCase();
+      const operation = (entity.operation || '').toLowerCase();
+      if (!entity.id || !['create', 'update'].includes(operation)) {
+        continue;
+      }
+      if (name === 'invoice') {
+        const result = await confirmFromQboInvoiceId(entity.id, eventId, payload);
+        if (result) {
+          if (!result.accepted || result.status === 'confirmed') {
+            return result;
+          }
+          lastStatus = result.status;
+        }
+      }
+      if (name === 'payment') {
+        try {
+          const payment = await getQboPayment(entity.id);
+          const invoiceId = payment.LinkedTxn?.find((txn) => txn.TxnType === 'Invoice')?.TxnId;
+          if (invoiceId) {
+            const result = await confirmFromQboInvoiceId(invoiceId, eventId, payload);
+            if (result) {
+              if (!result.accepted || result.status === 'confirmed') {
+                return result;
+              }
+              lastStatus = result.status;
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof IntuitQboError && error.statusCode === 404)) {
+            throw error;
+          }
+        }
+      }
+    }
+  }
+
+  await prisma.integrationWebhookEvent.update({
+    where: {
+      provider_eventExternalId: {
+        provider: INTUIT_PROVIDER,
+        eventExternalId: eventId,
+      },
+    },
+    data: { processedAt: new Date() },
+  });
+  return { accepted: true, duplicate: false, eventId, status: lastStatus };
 };
 
 export const processIntuitWebhook = async (
   payload: Record<string, unknown>
 ): Promise<{ accepted: boolean; duplicate: boolean; eventId: string; status: string }> => {
-  const eventId = getWebhookEventId(payload);
+  const qboEventId = Array.isArray(payload.eventNotifications)
+    ? deriveQboEventId(payload.eventNotifications as QboEventNotification[])
+    : null;
+  const eventId = qboEventId || getWebhookEventId(payload);
   const eventType = getWebhookType(payload);
 
   const existing = await prisma.integrationWebhookEvent.findUnique({
@@ -264,6 +620,10 @@ export const processIntuitWebhook = async (
       payload: payload as Prisma.InputJsonValue,
     },
   });
+
+  if (Array.isArray(payload.eventNotifications)) {
+    return processQboEventNotifications(payload, eventId);
+  }
 
   if (!isSucceededEvent(eventType)) {
     await prisma.integrationWebhookEvent.update({
