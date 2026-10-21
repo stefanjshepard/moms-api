@@ -74,7 +74,9 @@ describe('Intuit OAuth', () => {
     expect(String(body)).toContain('grant_type=authorization_code');
     expect(String(body)).toContain('code=auth-code');
     expect(String(body)).not.toContain('code_verifier');
+    expect(String(body)).not.toContain('client_id=');
     expect(config?.headers?.Authorization).toMatch(/^Basic /);
+    expect(config?.headers?.Accept).toBe('application/json');
 
     const status = await getOAuthConnectionStatus('intuit');
     expect(status.connected).toBe(true);

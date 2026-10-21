@@ -71,8 +71,9 @@ oauthRouter.get('/callback/:provider', oauthLimiter, async (req: Request, res: R
       ownerKey: result.ownerKey,
     });
   } catch (error) {
-    console.error('OAuth callback error:', error);
-    res.status(400).json({ error: error instanceof Error ? error.message : 'OAuth callback failed' });
+    const message = error instanceof Error ? error.message : 'OAuth callback failed';
+    console.error('OAuth callback error:', message);
+    res.status(400).json({ error: message });
   }
 });
 

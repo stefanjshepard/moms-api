@@ -21,6 +21,34 @@ const createPkceVerifier = (): string => b64Url(crypto.randomBytes(64));
 const createPkceChallenge = (verifier: string): string =>
   b64Url(crypto.createHash('sha256').update(verifier).digest());
 
+const tokenHeaders = (cfg: ReturnType<typeof getOAuthProviderConfig>): Record<string, string> => {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+  if (cfg.usesBasicClientAuth) {
+    headers.Authorization = `Basic ${Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64')}`;
+  }
+  return headers;
+};
+
+const mapTokenError = (error: unknown, action: string): Error => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+    const intuitError =
+      data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+        ? data.error
+        : undefined;
+    const status = error.response?.status;
+    return new Error(
+      intuitError
+        ? `Intuit ${action} failed: ${intuitError}`
+        : `Intuit ${action} failed (${status ?? 'network'})`
+    );
+  }
+  return error instanceof Error ? error : new Error(`Intuit ${action} failed`);
+};
+
 const exchangeCode = async (
   provider: OAuthProvider,
   code: string,
@@ -32,23 +60,23 @@ const exchangeCode = async (
   params.set('grant_type', 'authorization_code');
   params.set('code', code);
   params.set('redirect_uri', cfg.redirectUri);
-  params.set('client_id', cfg.clientId);
+  // Intuit token docs: Basic auth header only. Extra client_id in the body can return invalid_client.
   if (!cfg.usesBasicClientAuth) {
+    params.set('client_id', cfg.clientId);
     params.set('client_secret', cfg.clientSecret);
   }
   if (codeVerifier) {
     params.set('code_verifier', codeVerifier);
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  };
-  if (cfg.usesBasicClientAuth) {
-    headers.Authorization = `Basic ${Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64')}`;
+  try {
+    const response = await axios.post<OAuthTokenResponse>(cfg.tokenUrl, params.toString(), {
+      headers: tokenHeaders(cfg),
+    });
+    return response.data;
+  } catch (error) {
+    throw mapTokenError(error, 'token exchange');
   }
-
-  const response = await axios.post<OAuthTokenResponse>(cfg.tokenUrl, params.toString(), { headers });
-  return response.data;
 };
 
 const refreshToken = async (provider: OAuthProvider, refreshTokenValue: string): Promise<OAuthTokenResponse> => {
@@ -57,20 +85,19 @@ const refreshToken = async (provider: OAuthProvider, refreshTokenValue: string):
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');
   params.set('refresh_token', refreshTokenValue);
-  params.set('client_id', cfg.clientId);
   if (!cfg.usesBasicClientAuth) {
+    params.set('client_id', cfg.clientId);
     params.set('client_secret', cfg.clientSecret);
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  };
-  if (cfg.usesBasicClientAuth) {
-    headers.Authorization = `Basic ${Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64')}`;
+  try {
+    const response = await axios.post<OAuthTokenResponse>(cfg.tokenUrl, params.toString(), {
+      headers: tokenHeaders(cfg),
+    });
+    return response.data;
+  } catch (error) {
+    throw mapTokenError(error, 'token refresh');
   }
-
-  const response = await axios.post<OAuthTokenResponse>(cfg.tokenUrl, params.toString(), { headers });
-  return response.data;
 };
 
 const getTokenExpiryDate = (seconds?: number): Date | null => {
