@@ -50,22 +50,37 @@ GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/google_calend
 # GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
-## Intuit OAuth Connection (Preparation)
+## Intuit OAuth Connection (Sandbox)
+
+Use the sandbox keys from your Intuit Developer app. Do not commit `INTUIT_OAUTH_CLIENT_SECRET`. Add this exact Redirect URI on the app Keys page (the Quick Start playground URL is not this API):
+
+`http://localhost:5001/api/oauth/callback/intuit`
 
 ```env
+INTUIT_ENVIRONMENT=sandbox
 INTUIT_OAUTH_CLIENT_ID=...
 INTUIT_OAUTH_CLIENT_SECRET=...
 INTUIT_OAUTH_REDIRECT_URI=http://localhost:5001/api/oauth/callback/intuit
-# Optional:
+# Official OAuth endpoints (defaults shown):
 # INTUIT_OAUTH_AUTHORIZE_URL=https://appcenter.intuit.com/connect/oauth2
 # INTUIT_OAUTH_TOKEN_URL=https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
-# INTUIT_OAUTH_SCOPES=com.intuit.quickbooks.accounting com.intuit.quickbooks.payment
+# INTUIT_OAUTH_SCOPES=com.intuit.quickbooks.accounting com.intuit.quickbooks.payment openid profile email phone address
 ```
 
-New admin diagnostics endpoints:
+Connect a **sandbox** company, not the live QuickBooks company.
 
+1. `POST /api/oauth/intuit/authorize` with `x-admin-key` — open `authorizationUrl` and complete consent.
+2. Intuit redirects to `/api/oauth/callback/intuit?code=&state=&realmId=`. `realmId` is stored from that query string.
+3. Probe sandbox APIs (admin key required):
+   - `GET /api/admin/integrations/intuit/sandbox/companyinfo` → `GET https://sandbox-quickbooks.api.intuit.com/v3/company/{realmId}/companyinfo/{realmId}`
+   - `GET /api/admin/integrations/intuit/sandbox/userinfo` → `GET https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo`
+   - `POST /api/admin/integrations/intuit/sandbox/charges` → `POST https://sandbox.api.intuit.com/quickbooks/v4/payments/charges` (official test card; sandbox only)
+4. `POST /api/admin/integrations/intuit/refresh` refreshes the access token with the stored refresh token.
+
+Status:
+
+- `GET /api/oauth/intuit/status`
 - `GET /api/admin/integrations/intuit/status`
-- `POST /api/admin/integrations/intuit/refresh`
 
 ## Intuit Payments + Webhooks
 

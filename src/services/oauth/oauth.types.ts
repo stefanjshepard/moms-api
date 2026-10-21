@@ -11,6 +11,16 @@ export interface OAuthProviderConfig {
   accessType?: 'offline' | 'online';
   prompt?: string;
   usesBasicClientAuth?: boolean;
+  usePkce?: boolean;
+}
+
+export type IntuitEnvironment = 'sandbox' | 'production';
+
+export interface IntuitApiEndpoints {
+  environment: IntuitEnvironment;
+  companyBaseUrl: string;
+  userinfoUrl: string;
+  chargesUrl: string;
 }
 
 export interface OAuthTokenResponse {
