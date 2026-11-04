@@ -1,6 +1,20 @@
 import { PrismaClient } from '@prisma/client';
 import { resetAllLimiters } from '../middleware/rateLimit';
 
+const databaseName = (() => {
+  try {
+    return new URL(process.env.DATABASE_URL || '').pathname.replace(/^\//, '');
+  } catch {
+    return '';
+  }
+})();
+
+if (!/_test$/i.test(databaseName) && databaseName.toLowerCase() !== 'test') {
+  throw new Error(
+    `Refusing to run tests against database "${databaseName || 'unknown'}". Set TEST_DATABASE_URL to a dedicated test database (for example momsDB_test).`
+  );
+}
+
 const prisma = new PrismaClient();
 
 export const cleanupDatabase = async () => {

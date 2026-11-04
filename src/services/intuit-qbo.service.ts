@@ -200,12 +200,25 @@ const findServiceItem = async (): Promise<QboItem> => {
   );
 };
 
+export const normalizeQboInvoiceLink = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const comingSoonMatch = parsed.pathname.match(/^\/comingSoon(?:view)?\/(.+)$/i);
+    if (parsed.hostname === 'developer.intuit.com' && comingSoonMatch?.[1]) {
+      return `https://connect.intuit.com/t/${comingSoonMatch[1]}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
+};
+
 const readInvoiceLink = (invoice: QboInvoice | undefined): string | null => {
   if (!invoice) {
     return null;
   }
   if (typeof invoice.InvoiceLink === 'string' && invoice.InvoiceLink.startsWith('http')) {
-    return invoice.InvoiceLink;
+    return normalizeQboInvoiceLink(invoice.InvoiceLink);
   }
   return null;
 };

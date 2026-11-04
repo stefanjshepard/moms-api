@@ -1,5 +1,11 @@
 import { IntuitApiEndpoints, IntuitEnvironment, OAuthProvider, OAuthProviderConfig } from './oauth.types';
 
+export const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
+export const GOOGLE_CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+export const hasGoogleCalendarScope = (scopes: string[]): boolean =>
+  scopes.some((scope) => scope === GOOGLE_CALENDAR_SCOPE || scope === GOOGLE_CALENDAR_EVENTS_SCOPE);
+
 const getRequiredEnv = (key: string): string => {
   const value = process.env[key];
   if (!value) {
@@ -30,7 +36,7 @@ export const getOAuthProviderConfig = (provider: OAuthProvider): OAuthProviderCo
         clientSecret: getRequiredEnv('GOOGLE_OAUTH_CLIENT_SECRET'),
         redirectUri: getRequiredEnv('GOOGLE_OAUTH_REDIRECT_URI'),
         scopes: parseScopes(process.env.GOOGLE_OAUTH_SCOPES, [
-          'https://www.googleapis.com/auth/calendar',
+          GOOGLE_CALENDAR_SCOPE,
           'https://www.googleapis.com/auth/userinfo.email',
         ]),
         accessType: 'offline',

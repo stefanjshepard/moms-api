@@ -152,4 +152,42 @@ describe('QBO invoice Pay Now checkout', () => {
       .send(payload)
       .expect(200);
   });
+
+  it('rewrites sandbox comingSoon InvoiceLinks to a Connect Pay Now URL', () => {
+    expect(
+      qboService.normalizeQboInvoiceLink(
+        'https://developer.intuit.com/comingSoon/scs-v1-abc123?locale=en_US&cta=v3invoicelink'
+      )
+    ).toBe('https://connect.intuit.com/t/scs-v1-abc123');
+    expect(
+      qboService.normalizeQboInvoiceLink('https://developer.intuit.com/comingSoonview/scs-v1-xyz')
+    ).toBe('https://connect.intuit.com/t/scs-v1-xyz');
+  });
+
+  it('returns a rewritten Pay Now URL for an existing pending sandbox invoice', async () => {
+    const appointment = await seedConfirmedAppointment();
+    await prisma.paymentTransaction.create({
+      data: {
+        appointmentId: appointment.id,
+        provider: 'intuit',
+        externalPaymentId: '146',
+        status: 'pending',
+        amount: 150,
+        currency: 'USD',
+        checkoutUrl:
+          'https://developer.intuit.com/comingSoon/scs-v1-abc123?locale=en_US&cta=v3invoicelink',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .set(
+        'x-booking-token',
+        createBookingAccessToken({ appointmentId: appointment.id, email: appointment.email })
+      )
+      .send({ appointmentId: appointment.id })
+      .expect(201);
+
+    expect(response.body.checkoutUrl).toBe('https://connect.intuit.com/t/scs-v1-abc123');
+  });
 });

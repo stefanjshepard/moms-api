@@ -9,6 +9,7 @@ import {
   getQboInvoice,
   getQboPayment,
   IntuitQboError,
+  normalizeQboInvoiceLink,
 } from './intuit-qbo.service';
 import { appointmentPaymentReceiptToOwnerTemplate } from './email.templates';
 import { recordSecurityAuditEvent } from './security-audit.service';
@@ -155,10 +156,17 @@ export const createIntuitCheckoutSession = async (params: {
     orderBy: { createdAt: 'desc' },
   });
   if (existingPending?.checkoutUrl) {
+    const checkoutUrl = normalizeQboInvoiceLink(existingPending.checkoutUrl);
+    if (checkoutUrl !== existingPending.checkoutUrl) {
+      await prisma.paymentTransaction.update({
+        where: { id: existingPending.id },
+        data: { checkoutUrl },
+      });
+    }
     return {
       provider: INTUIT_PROVIDER,
       externalPaymentId: existingPending.externalPaymentId,
-      checkoutUrl: existingPending.checkoutUrl,
+      checkoutUrl,
       amount: existingPending.amount,
       currency: existingPending.currency,
       status: 'pending',
