@@ -158,6 +158,70 @@ const notifyStaleInvoicePaid = async (params: {
   });
 };
 
+const voidReplacementQboInvoice = async (invoiceId: string): Promise<void> => {
+  try {
+    await voidQboInvoice(invoiceId);
+  } catch (voidError) {
+    console.error(`Failed to void replacement QuickBooks invoice ${invoiceId}:`, voidError);
+  }
+};
+
+const claimPaidStaleInvoiceAfterReplacement = async (params: {
+  appointmentId: string;
+  paidInvoiceId: string;
+  paidTransactionId: string;
+  replacementInvoiceId: string;
+}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled'> =>
+  prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`
+      SELECT id FROM "Appointment" WHERE id = ${params.appointmentId} FOR UPDATE
+    `;
+    const current = await tx.appointment.findUnique({
+      where: { id: params.appointmentId },
+      select: { states: true, paymentStatus: true },
+    });
+    await tx.$queryRaw`
+      SELECT id
+      FROM "PaymentTransaction"
+      WHERE "appointmentId" = ${params.appointmentId} AND provider = ${INTUIT_PROVIDER}
+      ORDER BY id
+      FOR UPDATE
+    `;
+
+    await tx.paymentTransaction.updateMany({
+      where: {
+        appointmentId: params.appointmentId,
+        provider: INTUIT_PROVIDER,
+        externalPaymentId: params.replacementInvoiceId,
+        status: 'pending',
+      },
+      data: { status: 'ignored' },
+    });
+
+    if (!current || current.states === 'cancelled') {
+      return 'booking_cancelled';
+    }
+    if (current.paymentStatus === 'paid') {
+      return 'already_paid';
+    }
+
+    await tx.paymentTransaction.update({
+      where: { id: params.paidTransactionId },
+      data: { status: 'paid' },
+    });
+    await tx.appointment.update({
+      where: { id: params.appointmentId },
+      data: {
+        states: 'confirmed',
+        paymentStatus: 'paid',
+        paymentMethod: 'credit_card',
+        paymentProvider: INTUIT_PROVIDER,
+        paymentExternalId: params.paidInvoiceId,
+      },
+    });
+    return 'confirmed';
+  });
+
 export const createIntuitCheckoutSession = async (params: {
   appointmentId: string;
   bookingEmail?: string;
@@ -174,7 +238,7 @@ export const createIntuitCheckoutSession = async (params: {
 }> => {
   const appointment = await prisma.appointment.findUnique({
     where: { id: params.appointmentId },
-    include: { service: true },
+    include: { service: { include: { Client: true } } },
   });
   if (!appointment) {
     throw new Error('Appointment not found');
@@ -378,23 +442,13 @@ export const createIntuitCheckoutSession = async (params: {
       });
     });
   } catch (error) {
-    if (
-      mode === 'qbo' &&
-      error instanceof Error &&
-      error.message === 'This booking is already paid.'
-    ) {
-      try {
-        await voidQboInvoice(checkoutResult.externalPaymentId);
-      } catch (voidError) {
-        console.error(
-          `Failed to void replacement QuickBooks invoice ${checkoutResult.externalPaymentId}:`,
-          voidError
-        );
-      }
+    if (mode === 'qbo') {
+      await voidReplacementQboInvoice(checkoutResult.externalPaymentId);
     }
     throw error;
   }
 
+  let paidStale: (typeof stalePending)[number] | null = null;
   for (const stale of stalePending) {
     if (isMockExternalPaymentId(stale.externalPaymentId)) {
       continue;
@@ -402,17 +456,72 @@ export const createIntuitCheckoutSession = async (params: {
     try {
       const voidResult = await voidQboInvoice(stale.externalPaymentId);
       if (voidResult?.alreadyPaid) {
-        await notifyStaleInvoicePaid({
-          eventId: `checkout-void:${stale.externalPaymentId}`,
-          invoiceId: stale.externalPaymentId,
-          appointmentId: appointment.id,
-          paymentTransactionId: stale.id,
-          status: 'superseded',
-        });
+        if (!paidStale) {
+          paidStale = stale;
+        } else {
+          await notifyStaleInvoicePaid({
+            eventId: `checkout-void:${stale.externalPaymentId}`,
+            invoiceId: stale.externalPaymentId,
+            appointmentId: appointment.id,
+            paymentTransactionId: stale.id,
+            status: 'superseded',
+          });
+        }
       }
     } catch (error) {
       console.error(`Failed to void superseded QuickBooks invoice ${stale.externalPaymentId}:`, error);
     }
+  }
+
+  if (paidStale) {
+    if (mode === 'qbo') {
+      await voidReplacementQboInvoice(checkoutResult.externalPaymentId);
+    }
+    const claim = await claimPaidStaleInvoiceAfterReplacement({
+      appointmentId: appointment.id,
+      paidInvoiceId: paidStale.externalPaymentId,
+      paidTransactionId: paidStale.id,
+      replacementInvoiceId: checkoutResult.externalPaymentId,
+    });
+    if (claim === 'confirmed') {
+      await recordSecurityAuditEvent({
+        eventType: 'payment.confirmed',
+        outcome: 'accepted',
+        severity: 'info',
+        provider: INTUIT_PROVIDER,
+        appointmentId: appointment.id,
+        paymentTransactionId: paidStale.id,
+        metadata: {
+          eventId: `checkout-void:${paidStale.externalPaymentId}`,
+          eventType: 'qbo.invoice.paid',
+          amount: paidStale.amount,
+          currency: paidStale.currency,
+        },
+      });
+      sendPaidBookingEmails({
+        appointment: {
+          id: appointment.id,
+          clientFirstName: appointment.clientFirstName,
+          clientLastName: appointment.clientLastName,
+          email: appointment.email,
+          phone: appointment.phone,
+          date: appointment.date,
+          service: {
+            title: appointment.service.title,
+            description: appointment.service.description,
+            Client: appointment.service.Client ?? null,
+          },
+        },
+        receivedAmount: paidStale.amount,
+        receivedCurrency: paidStale.currency,
+        paymentExternalId: paidStale.externalPaymentId,
+      });
+    }
+    throw new Error(
+      claim === 'booking_cancelled'
+        ? 'Cancelled bookings cannot be paid.'
+        : 'This booking is already paid.'
+    );
   }
 
   return {
