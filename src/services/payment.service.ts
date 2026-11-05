@@ -172,14 +172,14 @@ const claimPaidStaleInvoiceAfterReplacement = async (params: {
   paidTransactionId: string;
   replacementInvoiceId: string;
   tipAmount: number;
-}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled'> =>
+}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled' | 'stale_invoice_paid'> =>
   prisma.$transaction(async (tx) => {
     await tx.$queryRaw`
       SELECT id FROM "Appointment" WHERE id = ${params.appointmentId} FOR UPDATE
     `;
     const current = await tx.appointment.findUnique({
       where: { id: params.appointmentId },
-      select: { states: true, paymentStatus: true },
+      select: { states: true, paymentStatus: true, paymentExternalId: true },
     });
     await tx.$queryRaw`
       SELECT id
@@ -207,7 +207,9 @@ const claimPaidStaleInvoiceAfterReplacement = async (params: {
       return 'booking_cancelled';
     }
     if (current.paymentStatus === 'paid') {
-      return 'already_paid';
+      return current.paymentExternalId === params.paidInvoiceId
+        ? 'already_paid'
+        : 'stale_invoice_paid';
     }
 
     await tx.paymentTransaction.update({
@@ -525,7 +527,7 @@ export const createIntuitCheckoutSession = async (params: {
         receivedCurrency: paidStale.currency,
         paymentExternalId: paidStale.externalPaymentId,
       });
-    } else {
+    } else if (claim === 'booking_cancelled' || claim === 'stale_invoice_paid') {
       await notifyStaleInvoicePaid({
         eventId: `checkout-void:${paidStale.externalPaymentId}`,
         invoiceId: paidStale.externalPaymentId,

@@ -678,6 +678,104 @@ describe('QBO invoice Pay Now checkout', () => {
     );
   });
 
+  it('does not send a refund alert when the same paid invoice is discovered twice', async () => {
+    const appointment = await seedConfirmedAppointment();
+    process.env.INTUIT_PAYMENT_MODE = 'qbo';
+    await prisma.paymentTransaction.create({
+      data: {
+        appointmentId: appointment.id,
+        provider: 'intuit',
+        externalPaymentId: '63',
+        status: 'pending',
+        amount: 150,
+        currency: 'USD',
+        checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=63',
+        metadata: { mode: 'qbo' },
+      },
+    });
+    (qboService.createQboInvoiceCheckout as jest.Mock).mockResolvedValue({
+      invoiceId: '64',
+      checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=64',
+      raw: { Invoice: { Id: '64' } },
+    });
+    (qboService.voidQboInvoice as jest.Mock).mockImplementation(async (invoiceId: string) => {
+      if (invoiceId === '63') {
+        await prisma.appointment.update({
+          where: { id: appointment.id },
+          data: { paymentStatus: 'paid', paymentExternalId: '63' },
+        });
+        return { voided: false, alreadyPaid: true };
+      }
+      return { voided: true, alreadyPaid: false };
+    });
+
+    await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .set(
+        'x-booking-token',
+        createBookingAccessToken({ appointmentId: appointment.id, email: appointment.email })
+      )
+      .send({ appointmentId: appointment.id, tipAmount: 20 })
+      .expect(409);
+
+    expect(emailService.sendEmail).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'Payment received on a replaced QuickBooks invoice',
+      expect.any(String),
+      undefined,
+      false
+    );
+  });
+
+  it('alerts when a replaced invoice is paid after a different invoice already paid the booking', async () => {
+    const appointment = await seedConfirmedAppointment();
+    process.env.INTUIT_PAYMENT_MODE = 'qbo';
+    await prisma.paymentTransaction.create({
+      data: {
+        appointmentId: appointment.id,
+        provider: 'intuit',
+        externalPaymentId: '65',
+        status: 'pending',
+        amount: 150,
+        currency: 'USD',
+        checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=65',
+        metadata: { mode: 'qbo' },
+      },
+    });
+    (qboService.createQboInvoiceCheckout as jest.Mock).mockResolvedValue({
+      invoiceId: '66',
+      checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=66',
+      raw: { Invoice: { Id: '66' } },
+    });
+    (qboService.voidQboInvoice as jest.Mock).mockImplementation(async (invoiceId: string) => {
+      if (invoiceId === '65') {
+        await prisma.appointment.update({
+          where: { id: appointment.id },
+          data: { paymentStatus: 'paid', paymentExternalId: 'other-99' },
+        });
+        return { voided: false, alreadyPaid: true };
+      }
+      return { voided: true, alreadyPaid: false };
+    });
+
+    await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .set(
+        'x-booking-token',
+        createBookingAccessToken({ appointmentId: appointment.id, email: appointment.email })
+      )
+      .send({ appointmentId: appointment.id, tipAmount: 20 })
+      .expect(409);
+
+    expect(emailService.sendEmail).toHaveBeenCalledWith(
+      expect.any(String),
+      'Payment received on a replaced QuickBooks invoice',
+      expect.any(String),
+      undefined,
+      false
+    );
+  });
+
   it('ignores a missing QBO invoice instead of failing the webhook', async () => {
     const appointment = await seedConfirmedAppointment();
     await prisma.paymentTransaction.create({
