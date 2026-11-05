@@ -171,6 +171,7 @@ const claimPaidStaleInvoiceAfterReplacement = async (params: {
   paidInvoiceId: string;
   paidTransactionId: string;
   replacementInvoiceId: string;
+  tipAmount: number;
 }): Promise<'confirmed' | 'already_paid' | 'booking_cancelled'> =>
   prisma.$transaction(async (tx) => {
     await tx.$queryRaw`
@@ -199,6 +200,10 @@ const claimPaidStaleInvoiceAfterReplacement = async (params: {
     });
 
     if (!current || current.states === 'cancelled') {
+      await tx.paymentTransaction.updateMany({
+        where: { id: params.paidTransactionId, status: 'superseded' },
+        data: { status: 'ignored' },
+      });
       return 'booking_cancelled';
     }
     if (current.paymentStatus === 'paid') {
@@ -217,6 +222,7 @@ const claimPaidStaleInvoiceAfterReplacement = async (params: {
         paymentMethod: 'credit_card',
         paymentProvider: INTUIT_PROVIDER,
         paymentExternalId: params.paidInvoiceId,
+        tipAmount: params.tipAmount,
       },
     });
     return 'confirmed';
@@ -477,11 +483,14 @@ export const createIntuitCheckoutSession = async (params: {
     if (mode === 'qbo') {
       await voidReplacementQboInvoice(checkoutResult.externalPaymentId);
     }
+    const baseAmount = Number((appointment.quotedAmount ?? appointment.service.price).toFixed(2));
+    const paidTip = Number(Math.max(0, paidStale.amount - baseAmount).toFixed(2));
     const claim = await claimPaidStaleInvoiceAfterReplacement({
       appointmentId: appointment.id,
       paidInvoiceId: paidStale.externalPaymentId,
       paidTransactionId: paidStale.id,
       replacementInvoiceId: checkoutResult.externalPaymentId,
+      tipAmount: paidTip,
     });
     if (claim === 'confirmed') {
       await recordSecurityAuditEvent({
@@ -515,6 +524,14 @@ export const createIntuitCheckoutSession = async (params: {
         receivedAmount: paidStale.amount,
         receivedCurrency: paidStale.currency,
         paymentExternalId: paidStale.externalPaymentId,
+      });
+    } else {
+      await notifyStaleInvoicePaid({
+        eventId: `checkout-void:${paidStale.externalPaymentId}`,
+        invoiceId: paidStale.externalPaymentId,
+        appointmentId: appointment.id,
+        paymentTransactionId: paidStale.id,
+        status: claim,
       });
     }
     throw new Error(
