@@ -12,6 +12,7 @@ import {
   getSandboxUserInfo,
   IntuitSandboxError,
 } from '../services/intuit-sandbox.service';
+import { syncPendingQboInvoicePayments } from '../services/payment.service';
 
 const integrationRouter = express.Router();
 
@@ -78,6 +79,20 @@ integrationRouter.post(
       res.status(201).json({ environment: 'sandbox', data });
     } catch (error) {
       sendSandboxError(res, error, 'Failed to create Intuit sandbox charge');
+    }
+  }
+);
+
+integrationRouter.post(
+  '/intuit/sync-paid-invoices',
+  oauthLimiter,
+  adminAuth,
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const result = await syncPendingQboInvoicePayments();
+      res.json(result);
+    } catch (error) {
+      sendSandboxError(res, error, 'Failed to sync pending QuickBooks invoices');
     }
   }
 );
