@@ -63,6 +63,9 @@ const mapAxiosError = (error: unknown, action: string): IntuitQboError => {
     if (status === 401) {
       return new IntuitQboError(`Intuit ${action} unauthorized after token refresh: ${detail}`, 401);
     }
+    if (status === 404) {
+      return new IntuitQboError(`Intuit ${action} not found: ${detail}`, 404);
+    }
     return new IntuitQboError(`Intuit ${action} failed (${status ?? 'network'}): ${detail}`, 502);
   }
   if (error instanceof Error) {
