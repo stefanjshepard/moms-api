@@ -32,6 +32,7 @@ import { scheduleAppointmentReminder, cancelAppointmentReminders } from '../serv
 import { appointmentLimiter } from '../middleware/rateLimit';
 import {
   deleteGoogleCalendarEvent,
+  getGoogleCalendarConnectionProblem,
   upsertGoogleCalendarEvent,
 } from '../services/calendar.service';
 import { syncFlyerGoogleCalendarSafe } from './flyer.routes';
@@ -87,13 +88,13 @@ const hasValidServerPaymentConfirmationAuth = (req: Request): boolean => {
 };
 
 
-/** Resolve email for business owner: service owner, then env, then first client in DB */
+/** Resolve email for business owner: env, then service owner, then first client in DB */
 async function getBusinessOwnerEmailForNotification(service: { Client?: { email: string } | null }): Promise<string | null> {
-  if (service.Client?.email) {
-    return service.Client.email;
-  }
   if (process.env.BUSINESS_OWNER_EMAIL) {
     return process.env.BUSINESS_OWNER_EMAIL;
+  }
+  if (service.Client?.email) {
+    return service.Client.email;
   }
   try {
     const client = await prisma.client.findFirst();
@@ -514,7 +515,9 @@ appointmentRouter.get('/:id/decision', async (req: Request, res: Response): Prom
       }
 
       let calendarSynced = false;
-      let calendarNote = 'Google Calendar could not be updated. Connect Google Calendar OAuth on the API, then accept again or resave this booking.';
+      let calendarNote =
+        (await getGoogleCalendarConnectionProblem()) ||
+        'Google Calendar could not be updated. Connect Google Calendar OAuth on the API, then accept again or resave this booking.';
       try {
         const calendarEventId = await upsertGoogleCalendarEvent(nextAppointment, nextAppointment.service);
         if (calendarEventId) {

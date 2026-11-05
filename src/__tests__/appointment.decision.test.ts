@@ -7,6 +7,7 @@ jest.mock('../services/calendar.service', () => ({
   upsertGoogleCalendarEvent: jest.fn().mockResolvedValue('cal-event-1'),
   deleteGoogleCalendarEvent: jest.fn().mockResolvedValue(undefined),
   buildGoogleCalendarEventPayload: jest.fn(),
+  getGoogleCalendarConnectionProblem: jest.fn().mockResolvedValue(null),
 }));
 
 import request from 'supertest';
@@ -24,6 +25,7 @@ describe('Appointment accept/deny + inquire-only services', () => {
   beforeEach(() => {
     (emailService.sendEmail as jest.Mock).mockResolvedValue(undefined);
     (calendarService.upsertGoogleCalendarEvent as jest.Mock).mockResolvedValue('cal-event-1');
+    (calendarService.getGoogleCalendarConnectionProblem as jest.Mock).mockResolvedValue(null);
     process.env.BOOKING_TOKEN_SECRET = 'decision-test-secret';
     process.env.BUSINESS_OWNER_EMAIL = 'owner@example.com';
   });

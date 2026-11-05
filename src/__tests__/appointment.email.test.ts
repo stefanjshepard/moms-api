@@ -310,7 +310,7 @@ describe('Appointment Email Integration', () => {
       const emailHtml = emailCall[2] as string;
 
       expect(emailHtml).toContain('Confirmed');
-      expect(emailHtml).toContain('Status:</strong> Confirmed');
+      expect(emailHtml).toContain('Status:</strong> Paid');
     });
   });
 

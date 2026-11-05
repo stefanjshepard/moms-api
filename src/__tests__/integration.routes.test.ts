@@ -44,6 +44,7 @@ describe('Integration Routes', () => {
     await request(app).get('/api/admin/integrations/intuit/sandbox/companyinfo').expect(401);
     await request(app).get('/api/admin/integrations/intuit/sandbox/userinfo').expect(401);
     await request(app).post('/api/admin/integrations/intuit/sandbox/charges').expect(401);
+    await request(app).post('/api/admin/integrations/intuit/sync-paid-invoices').expect(401);
   });
 
   it('should return 400 for sandbox companyinfo when intuit is disconnected', async () => {

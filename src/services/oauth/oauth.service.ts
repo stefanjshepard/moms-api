@@ -2,7 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { decryptSecret, encryptSecret } from './oauth.crypto';
-import { getOAuthProviderConfig } from './oauth.providers';
+import { getOAuthProviderConfig, hasGoogleCalendarScope } from './oauth.providers';
 import { OAuthProvider, OAuthTokenResponse } from './oauth.types';
 
 const prisma = new PrismaClient();
@@ -188,6 +188,12 @@ export const completeOAuthAuthorization = async (params: {
   const scopes = tokenResponse.scope
     ? tokenResponse.scope.split(/\s+/).filter(Boolean)
     : getOAuthProviderConfig(params.provider).scopes;
+
+  if (params.provider === 'google_calendar' && !hasGoogleCalendarScope(scopes)) {
+    throw new Error(
+      'Google connected without Calendar access. Enable the Google Calendar API in Cloud Console, add the calendar scope on the OAuth consent screen, then connect again.'
+    );
+  }
 
   // Intuit returns realmId on the redirect query string, not in the token JSON.
   const realmId = params.realmId || tokenResponse.realmId || undefined;

@@ -1,7 +1,8 @@
 import { Appointment, Service } from '@prisma/client';
 import { google, calendar_v3 } from 'googleapis';
 import { BOOKING_TIMEZONE_GOOGLE } from './scheduling.service';
-import { getAccessTokenForProvider } from './oauth/oauth.service';
+import { getAccessTokenForProvider, getOAuthConnectionStatus } from './oauth/oauth.service';
+import { hasGoogleCalendarScope } from './oauth/oauth.providers';
 
 export interface CalendarEventPayload {
   summary: string;
@@ -95,7 +96,30 @@ const getServiceAccountCalendarClient = (): calendar_v3.Calendar | null => {
   return google.calendar({ version: 'v3', auth });
 };
 
+export const getGoogleCalendarConnectionProblem = async (): Promise<string | null> => {
+  if (!isCalendarSyncEnabled()) {
+    return 'Google Calendar sync is turned off on the API.';
+  }
+  const status = await getOAuthConnectionStatus('google_calendar');
+  if (!status.connected) {
+    return 'Google Calendar is not connected. Complete Google Calendar OAuth on the API, then accept again.';
+  }
+  if (!hasGoogleCalendarScope(status.scopes)) {
+    return 'Google signed in, but Calendar access was not granted. Enable the Google Calendar API in Google Cloud, add the calendar scope, connect again, then accept this booking once more.';
+  }
+  return null;
+};
+
 const getOAuthCalendarClient = async (): Promise<calendar_v3.Calendar | null> => {
+  const problem = await getGoogleCalendarConnectionProblem();
+  if (problem) {
+    if (process.env.NODE_ENV !== 'test' && !hasWarnedMissingCalendarAuth) {
+      console.warn(problem);
+      hasWarnedMissingCalendarAuth = true;
+    }
+    return null;
+  }
+
   let accessToken: string | null = null;
   try {
     accessToken = await getAccessTokenForProvider('google_calendar');

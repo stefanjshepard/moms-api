@@ -283,12 +283,12 @@ export const appointmentConfirmedTemplate = (data: AppointmentData): string => {
         </div>
         <div class="content">
           <p>Hi ${escapeHtml(data.clientFirstName)},</p>
-          <p>Great news! Your appointment has been confirmed.</p>
+          <p>We received your payment. Your session is booked.</p>
           <div class="details">
             <h3>Confirmed Appointment Details:</h3>
             <p><strong>Service:</strong> ${escapeHtml(data.serviceTitle)}</p>
             <p><strong>Date & Time:</strong> ${formattedDate}</p>
-            <p><strong>Status:</strong> Confirmed</p>
+            <p><strong>Status:</strong> Paid</p>
           </div>
           <p>We're looking forward to meeting with you. If you need to make any changes, please contact us at least 24 hours in advance.</p>
           <p>See you soon!</p>

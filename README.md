@@ -85,10 +85,11 @@ Status:
 ## Intuit Payments + Webhooks
 
 ```env
-# payment checkout mode: mock (default) or live
+# mock (default, no charge) | qbo (QuickBooks invoice + Pay Now) | live (legacy generic checkout URL)
 INTUIT_PAYMENT_MODE=mock
+# INTUIT_PAYMENT_MODE=qbo
 
-# required in live mode: Intuit payment creation endpoint
+# required in live mode only: generic payment creation endpoint
 # INTUIT_PAYMENTS_CREATE_URL=https://...
 
 # optional checkout redirect base (mock/demo mode)
@@ -113,10 +114,14 @@ PAYMENT_CONFIRMATION_SECRET=replace-me
 # SECURITY_ALERT_EMAIL=security@example.com
 ```
 
+When `INTUIT_PAYMENT_MODE=qbo`, checkout creates a QuickBooks invoice (online card/ACH enabled) and returns the Pay Now `InvoiceLink`. Circles stay pay-in-person. Default remains mock.
+
+On the momsWebsite app, **Webhooks → Development**, subscribe to Invoice and Payment create/update, endpoint `https://<public-api>/api/webhooks/intuit`, and put the Verifier Token in `INTUIT_WEBHOOK_SECRET`. Localhost needs a public tunnel for Intuit to reach you.
+
 Payment endpoints:
 
 - `POST /api/payments/intuit/checkout-session` (requires `x-booking-token`)
-- `POST /api/webhooks/intuit` (requires `intuit-signature` + `intuit-timestamp`)
+- `POST /api/webhooks/intuit` (QBO: `intuit-signature` HMAC of the raw body; tests may also send `intuit-timestamp`)
 
 Public route hardening:
 

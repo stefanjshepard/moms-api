@@ -22,9 +22,12 @@ const createIntuitWebhookHeaders = (payload: Record<string, unknown>, secret: st
 };
 
 describe('Payment + Webhook Flow', () => {
+  const originalOwnerEmail = process.env.BUSINESS_OWNER_EMAIL;
+
   beforeEach(() => {
     jest.spyOn(emailService, 'sendEmail').mockResolvedValue(undefined);
     process.env.BOOKING_TOKEN_SECRET = 'test-booking-token-secret';
+    process.env.BUSINESS_OWNER_EMAIL = 'webhook-owner@example.com';
   });
 
   afterEach(() => {
@@ -34,6 +37,11 @@ describe('Payment + Webhook Flow', () => {
     delete process.env.INTUIT_PAYMENTS_CREATE_URL;
     delete process.env.BOOKING_TOKEN_SECRET;
     delete process.env.INTUIT_SUCCESS_EVENT_TYPES;
+    if (originalOwnerEmail === undefined) {
+      delete process.env.BUSINESS_OWNER_EMAIL;
+    } else {
+      process.env.BUSINESS_OWNER_EMAIL = originalOwnerEmail;
+    }
   });
 
   it('should create an Intuit checkout session and persist payment transaction', async () => {
@@ -261,6 +269,11 @@ describe('Payment + Webhook Flow', () => {
     expect(updated?.paymentStatus).toBe('paid');
     expect(updated?.paymentProvider).toBe('intuit');
 
+    expect(emailService.sendEmail).toHaveBeenCalledWith(
+      'webhook-user@example.com',
+      'Your payment was received — session is booked',
+      expect.stringContaining('We received your payment')
+    );
     expect(emailService.sendEmail).toHaveBeenCalledWith(
       'webhook-owner@example.com',
       expect.stringContaining('Payment received:'),
