@@ -10,6 +10,7 @@ import {
   getQboPayment,
   IntuitQboError,
   normalizeQboInvoiceLink,
+  voidQboInvoice,
 } from './intuit-qbo.service';
 import { appointmentPaymentReceiptToOwnerTemplate } from './email.templates';
 import { recordSecurityAuditEvent } from './security-audit.service';
@@ -203,16 +204,15 @@ export const createIntuitCheckoutSession = async (params: {
       mode,
     };
   }
-  if (existingPending) {
-    await prisma.paymentTransaction.updateMany({
-      where: {
-        appointmentId: appointment.id,
-        provider: INTUIT_PROVIDER,
-        status: 'pending',
-      },
-      data: { status: 'superseded' },
-    });
-  }
+  const stalePending = existingPending
+    ? await prisma.paymentTransaction.findMany({
+        where: {
+          appointmentId: appointment.id,
+          provider: INTUIT_PROVIDER,
+          status: 'pending',
+        },
+      })
+    : [];
   let checkoutResult: IntuitCheckoutResult;
   if (mode === 'qbo') {
     const invoice = await createQboInvoiceCheckout({
@@ -290,6 +290,16 @@ export const createIntuitCheckoutSession = async (params: {
   }
 
   await prisma.$transaction(async (tx) => {
+    if (stalePending.length > 0) {
+      await tx.paymentTransaction.updateMany({
+        where: {
+          appointmentId: appointment.id,
+          provider: INTUIT_PROVIDER,
+          status: 'pending',
+        },
+        data: { status: 'superseded' },
+      });
+    }
     await tx.paymentTransaction.create({
       data: {
         appointmentId: appointment.id,
@@ -314,6 +324,17 @@ export const createIntuitCheckoutSession = async (params: {
       },
     });
   });
+
+  for (const stale of stalePending) {
+    if (isMockExternalPaymentId(stale.externalPaymentId)) {
+      continue;
+    }
+    try {
+      await voidQboInvoice(stale.externalPaymentId);
+    } catch (error) {
+      console.error(`Failed to void superseded QuickBooks invoice ${stale.externalPaymentId}:`, error);
+    }
+  }
 
   return {
     provider: INTUIT_PROVIDER,
@@ -413,6 +434,89 @@ const deriveQboEventId = (notifications: QboEventNotification[]): string | null 
   return joined ? joined.slice(0, 250) : null;
 };
 
+const markWebhookProcessed = async (
+  tx: Prisma.TransactionClient,
+  eventId: string
+): Promise<void> => {
+  await tx.integrationWebhookEvent.update({
+    where: {
+      provider_eventExternalId: {
+        provider: INTUIT_PROVIDER,
+        eventExternalId: eventId,
+      },
+    },
+    data: { processedAt: new Date() },
+  });
+};
+
+const claimPaidConfirmation = async (params: {
+  eventId: string;
+  paymentTxId: string;
+  appointmentId: string;
+  paymentExternalId: string;
+  payload: Record<string, unknown>;
+}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled'> =>
+  prisma.$transaction(async (tx) => {
+    const appointments = await tx.$queryRaw<Array<{ states: string; paymentStatus: string | null }>>`
+      SELECT states, "paymentStatus"
+      FROM "Appointment"
+      WHERE id = ${params.appointmentId}
+      FOR UPDATE
+    `;
+    const current = appointments[0];
+    if (!current || current.states === 'cancelled') {
+      await tx.paymentTransaction.updateMany({
+        where: { id: params.paymentTxId, status: 'pending' },
+        data: { status: 'ignored' },
+      });
+      await markWebhookProcessed(tx, params.eventId);
+      return 'booking_cancelled';
+    }
+
+    const payments = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status
+      FROM "PaymentTransaction"
+      WHERE id = ${params.paymentTxId}
+      FOR UPDATE
+    `;
+    const payment = payments[0];
+    if (!payment || payment.status !== 'pending') {
+      await markWebhookProcessed(tx, params.eventId);
+      return 'already_paid';
+    }
+    if (current.paymentStatus === 'paid') {
+      await tx.paymentTransaction.update({
+        where: { id: params.paymentTxId },
+        data: {
+          status: 'paid',
+          metadata: params.payload as Prisma.InputJsonValue,
+        },
+      });
+      await markWebhookProcessed(tx, params.eventId);
+      return 'already_paid';
+    }
+
+    await tx.paymentTransaction.update({
+      where: { id: params.paymentTxId },
+      data: {
+        status: 'paid',
+        metadata: params.payload as Prisma.InputJsonValue,
+      },
+    });
+    await tx.appointment.update({
+      where: { id: params.appointmentId },
+      data: {
+        states: 'confirmed',
+        paymentStatus: 'paid',
+        paymentMethod: 'credit_card',
+        paymentProvider: INTUIT_PROVIDER,
+        paymentExternalId: params.paymentExternalId,
+      },
+    });
+    await markWebhookProcessed(tx, params.eventId);
+    return 'confirmed';
+  });
+
 const confirmPaidBooking = async (params: {
   eventId: string;
   eventType: string;
@@ -441,71 +545,12 @@ const confirmPaidBooking = async (params: {
   payload: Record<string, unknown>;
 }): Promise<{ accepted: boolean; duplicate: boolean; eventId: string; status: string }> => {
   const { paymentTx, appointment, eventId, eventType } = params;
-  const claim = await prisma.$transaction(async (tx) => {
-    const currentAppointment = await tx.appointment.findUnique({
-      where: { id: appointment.id },
-      select: { states: true },
-    });
-    if (!currentAppointment || currentAppointment.states === 'cancelled') {
-      await tx.paymentTransaction.updateMany({
-        where: { id: paymentTx.id, status: 'pending' },
-        data: { status: 'ignored' },
-      });
-      await tx.integrationWebhookEvent.update({
-        where: {
-          provider_eventExternalId: {
-            provider: INTUIT_PROVIDER,
-            eventExternalId: eventId,
-          },
-        },
-        data: { processedAt: new Date() },
-      });
-      return 'booking_cancelled' as const;
-    }
-
-    const claimed = await tx.paymentTransaction.updateMany({
-      where: { id: paymentTx.id, status: 'pending' },
-      data: {
-        status: 'paid',
-        metadata: params.payload as Prisma.InputJsonValue,
-      },
-    });
-    if (claimed.count !== 1) {
-      await tx.integrationWebhookEvent.update({
-        where: {
-          provider_eventExternalId: {
-            provider: INTUIT_PROVIDER,
-            eventExternalId: eventId,
-          },
-        },
-        data: { processedAt: new Date() },
-      });
-      return 'already_paid' as const;
-    }
-
-    const confirmed = await tx.appointment.updateMany({
-      where: { id: appointment.id, states: { not: 'cancelled' } },
-      data: {
-        states: 'confirmed',
-        paymentStatus: 'paid',
-        paymentMethod: 'credit_card',
-        paymentProvider: INTUIT_PROVIDER,
-        paymentExternalId: params.paymentExternalId,
-      },
-    });
-    await tx.integrationWebhookEvent.update({
-      where: {
-        provider_eventExternalId: {
-          provider: INTUIT_PROVIDER,
-          eventExternalId: eventId,
-        },
-      },
-      data: { processedAt: new Date() },
-    });
-    if (confirmed.count !== 1) {
-      return 'booking_cancelled' as const;
-    }
-    return 'confirmed' as const;
+  const claim = await claimPaidConfirmation({
+    eventId,
+    paymentTxId: paymentTx.id,
+    appointmentId: appointment.id,
+    paymentExternalId: params.paymentExternalId,
+    payload: params.payload,
   });
 
   if (claim !== 'confirmed') {
@@ -585,6 +630,33 @@ const confirmFromQboInvoiceId = async (
       data: { processedAt: new Date() },
     });
     return { accepted: true, duplicate: false, eventId, status: 'invoice_unpaid' };
+  }
+
+  if (paymentTx.status === 'superseded' || paymentTx.status === 'ignored') {
+    await prisma.integrationWebhookEvent.update({
+      where: {
+        provider_eventExternalId: {
+          provider: INTUIT_PROVIDER,
+          eventExternalId: eventId,
+        },
+      },
+      data: { processedAt: new Date() },
+    });
+    await recordSecurityAuditEvent({
+      eventType: 'payment.stale_invoice_paid',
+      outcome: 'rejected',
+      severity: 'critical',
+      provider: INTUIT_PROVIDER,
+      appointmentId: paymentTx.appointmentId,
+      paymentTransactionId: paymentTx.id,
+      metadata: { eventId, invoiceId, status: paymentTx.status },
+    });
+    await sendSecurityAlert({
+      subject: 'Payment received on a replaced QuickBooks invoice',
+      summary: 'A superseded or ignored invoice was paid. The booking was not marked paid; refund or apply the payment in QuickBooks.',
+      details: { eventId, invoiceId, appointmentId: paymentTx.appointmentId },
+    });
+    return { accepted: true, duplicate: false, eventId, status: 'stale_invoice_paid' };
   }
 
   const appointment = await prisma.appointment.findUnique({
@@ -1027,71 +1099,12 @@ export const processIntuitWebhook = async (
     return { accepted: false, duplicate: false, eventId, status: 'realm_mismatch' };
   }
 
-  const liveClaim = await prisma.$transaction(async (tx) => {
-    const currentAppointment = await tx.appointment.findUnique({
-      where: { id: appointment.id },
-      select: { states: true },
-    });
-    if (!currentAppointment || currentAppointment.states === 'cancelled') {
-      await tx.paymentTransaction.updateMany({
-        where: { id: paymentTx.id, status: 'pending' },
-        data: { status: 'ignored' },
-      });
-      await tx.integrationWebhookEvent.update({
-        where: {
-          provider_eventExternalId: {
-            provider: INTUIT_PROVIDER,
-            eventExternalId: eventId,
-          },
-        },
-        data: { processedAt: new Date() },
-      });
-      return 'booking_cancelled' as const;
-    }
-
-    const claimed = await tx.paymentTransaction.updateMany({
-      where: { id: paymentTx.id, status: 'pending' },
-      data: {
-        status: 'paid',
-        metadata: payload as Prisma.InputJsonValue,
-      },
-    });
-    if (claimed.count !== 1) {
-      await tx.integrationWebhookEvent.update({
-        where: {
-          provider_eventExternalId: {
-            provider: INTUIT_PROVIDER,
-            eventExternalId: eventId,
-          },
-        },
-        data: { processedAt: new Date() },
-      });
-      return 'already_paid' as const;
-    }
-
-    const confirmed = await tx.appointment.updateMany({
-      where: { id: appointment.id, states: { not: 'cancelled' } },
-      data: {
-        states: 'confirmed',
-        paymentStatus: 'paid',
-        paymentMethod: 'credit_card',
-        paymentProvider: INTUIT_PROVIDER,
-        paymentExternalId: paymentId ?? appointment.paymentExternalId,
-      },
-    });
-    await tx.integrationWebhookEvent.update({
-      where: {
-        provider_eventExternalId: {
-          provider: INTUIT_PROVIDER,
-          eventExternalId: eventId,
-        },
-      },
-      data: { processedAt: new Date() },
-    });
-    if (confirmed.count !== 1) {
-      return 'booking_cancelled' as const;
-    }
-    return 'confirmed' as const;
+  const liveClaim = await claimPaidConfirmation({
+    eventId,
+    paymentTxId: paymentTx.id,
+    appointmentId: appointment.id,
+    paymentExternalId: paymentId ?? appointment.paymentExternalId ?? paymentTx.externalPaymentId,
+    payload,
   });
 
   if (liveClaim !== 'confirmed') {

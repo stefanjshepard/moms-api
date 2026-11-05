@@ -26,6 +26,7 @@ type QboCustomer = {
 type QboItem = { Id: string; Name?: string; Type?: string; Active?: boolean };
 export type QboInvoice = {
   Id: string;
+  SyncToken?: string;
   Balance?: number;
   TotalAmt?: number;
   InvoiceLink?: string;
@@ -238,6 +239,21 @@ export const getQboInvoice = async (invoiceId: string): Promise<QboInvoice> => {
     throw new IntuitQboError(`Intuit invoice ${invoiceId} was not found.`, 404);
   }
   return data.Invoice;
+};
+
+export const voidQboInvoice = async (invoiceId: string): Promise<void> => {
+  const invoice = await getQboInvoice(invoiceId);
+  if (!invoice.SyncToken) {
+    throw new IntuitQboError(`Intuit invoice ${invoiceId} is missing SyncToken.`, 502);
+  }
+  const realmId = await getStoredRealmId();
+  await withBearerRetry('void invoice', async (accessToken) => {
+    await axios.post(
+      qboUrl(realmId, '/invoice', { operation: 'void' }),
+      { Id: invoiceId, SyncToken: invoice.SyncToken },
+      { headers: jsonHeaders(accessToken, { 'Content-Type': 'application/json' }) }
+    );
+  });
 };
 
 export const getQboPayment = async (paymentId: string): Promise<QboPayment> => {
