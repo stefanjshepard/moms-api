@@ -489,6 +489,55 @@ describe('QBO invoice Pay Now checkout', () => {
     expect(qboService.voidQboInvoice).toHaveBeenCalledWith('50');
   });
 
+  it('does not revert a booking that was paid while a replacement invoice was created', async () => {
+    const appointment = await seedConfirmedAppointment();
+    process.env.INTUIT_PAYMENT_MODE = 'qbo';
+    await prisma.paymentTransaction.create({
+      data: {
+        appointmentId: appointment.id,
+        provider: 'intuit',
+        externalPaymentId: '56',
+        status: 'pending',
+        amount: 150,
+        currency: 'USD',
+        checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=56',
+        metadata: { mode: 'qbo' },
+      },
+    });
+    (qboService.createQboInvoiceCheckout as jest.Mock).mockImplementation(async () => {
+      await prisma.paymentTransaction.update({
+        where: { externalPaymentId: '56' },
+        data: { status: 'paid' },
+      });
+      await prisma.appointment.update({
+        where: { id: appointment.id },
+        data: { paymentStatus: 'paid', paymentExternalId: '56' },
+      });
+      return {
+        invoiceId: '57',
+        checkoutUrl: 'https://sandbox.qbo.intuit.com/app/payinvoice?invoiceId=57',
+        raw: { Invoice: { Id: '57' } },
+      };
+    });
+
+    await request(app)
+      .post('/api/payments/intuit/checkout-session')
+      .set(
+        'x-booking-token',
+        createBookingAccessToken({ appointmentId: appointment.id, email: appointment.email })
+      )
+      .send({ appointmentId: appointment.id, tipAmount: 20 })
+      .expect(409);
+
+    const updated = await prisma.appointment.findUnique({ where: { id: appointment.id } });
+    expect(updated?.paymentStatus).toBe('paid');
+    expect(updated?.paymentExternalId).toBe('56');
+    expect(
+      await prisma.paymentTransaction.findUnique({ where: { externalPaymentId: '57' } })
+    ).toBeNull();
+    expect(qboService.voidQboInvoice).toHaveBeenCalledWith('57');
+  });
+
   it('ignores a missing QBO invoice instead of failing the webhook', async () => {
     const appointment = await seedConfirmedAppointment();
     await prisma.paymentTransaction.create({

@@ -241,8 +241,13 @@ export const getQboInvoice = async (invoiceId: string): Promise<QboInvoice> => {
   return data.Invoice;
 };
 
-export const voidQboInvoice = async (invoiceId: string): Promise<void> => {
+export const voidQboInvoice = async (
+  invoiceId: string
+): Promise<{ voided: boolean; alreadyPaid: boolean }> => {
   const invoice = await getQboInvoice(invoiceId);
+  if (typeof invoice.Balance === 'number' && Number(invoice.Balance.toFixed(2)) === 0) {
+    return { voided: false, alreadyPaid: true };
+  }
   if (!invoice.SyncToken) {
     throw new IntuitQboError(`Intuit invoice ${invoiceId} is missing SyncToken.`, 502);
   }
@@ -254,6 +259,7 @@ export const voidQboInvoice = async (invoiceId: string): Promise<void> => {
       { headers: jsonHeaders(accessToken, { 'Content-Type': 'application/json' }) }
     );
   });
+  return { voided: true, alreadyPaid: false };
 };
 
 export const getQboPayment = async (paymentId: string): Promise<QboPayment> => {

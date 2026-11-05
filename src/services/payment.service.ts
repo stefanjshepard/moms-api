@@ -126,6 +126,38 @@ const pendingCheckoutMatches = (
 const isInvoicePaid = (balance: number | undefined): boolean =>
   typeof balance === 'number' && Number(balance.toFixed(2)) === 0;
 
+const notifyStaleInvoicePaid = async (params: {
+  eventId: string;
+  invoiceId: string;
+  appointmentId: string;
+  paymentTransactionId: string;
+  status: string;
+}): Promise<void> => {
+  await recordSecurityAuditEvent({
+    eventType: 'payment.stale_invoice_paid',
+    outcome: 'rejected',
+    severity: 'critical',
+    provider: INTUIT_PROVIDER,
+    appointmentId: params.appointmentId,
+    paymentTransactionId: params.paymentTransactionId,
+    metadata: {
+      eventId: params.eventId,
+      invoiceId: params.invoiceId,
+      status: params.status,
+    },
+  });
+  await sendSecurityAlert({
+    subject: 'Payment received on a replaced QuickBooks invoice',
+    summary:
+      'A superseded or ignored invoice was paid. The booking was not marked paid; refund or apply the payment in QuickBooks.',
+    details: {
+      eventId: params.eventId,
+      invoiceId: params.invoiceId,
+      appointmentId: params.appointmentId,
+    },
+  });
+};
+
 export const createIntuitCheckoutSession = async (params: {
   appointmentId: string;
   bookingEmail?: string;
@@ -289,48 +321,95 @@ export const createIntuitCheckoutSession = async (params: {
     };
   }
 
-  await prisma.$transaction(async (tx) => {
-    if (stalePending.length > 0) {
-      await tx.paymentTransaction.updateMany({
-        where: {
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM "Appointment" WHERE id = ${appointment.id} FOR UPDATE
+      `;
+      const current = await tx.appointment.findUnique({
+        where: { id: appointment.id },
+        select: { states: true, paymentStatus: true },
+      });
+      if (!current || current.states === 'cancelled') {
+        throw new Error('Cancelled bookings cannot be paid.');
+      }
+      if (current.paymentStatus === 'paid') {
+        throw new Error('This booking is already paid.');
+      }
+      await tx.$queryRaw`
+        SELECT id
+        FROM "PaymentTransaction"
+        WHERE "appointmentId" = ${appointment.id} AND provider = ${INTUIT_PROVIDER}
+        ORDER BY id
+        FOR UPDATE
+      `;
+      if (stalePending.length > 0) {
+        await tx.paymentTransaction.updateMany({
+          where: {
+            appointmentId: appointment.id,
+            provider: INTUIT_PROVIDER,
+            status: 'pending',
+          },
+          data: { status: 'superseded' },
+        });
+      }
+      await tx.paymentTransaction.create({
+        data: {
           appointmentId: appointment.id,
           provider: INTUIT_PROVIDER,
+          externalPaymentId: checkoutResult.externalPaymentId,
           status: 'pending',
+          amount,
+          currency,
+          checkoutUrl: checkoutResult.checkoutUrl,
+          metadata: { mode, gatewayResponse: checkoutResult.raw } as Prisma.InputJsonValue,
         },
-        data: { status: 'superseded' },
       });
-    }
-    await tx.paymentTransaction.create({
-      data: {
-        appointmentId: appointment.id,
-        provider: INTUIT_PROVIDER,
-        externalPaymentId: checkoutResult.externalPaymentId,
-        status: 'pending',
-        amount,
-        currency,
-        checkoutUrl: checkoutResult.checkoutUrl,
-        metadata: { mode, gatewayResponse: checkoutResult.raw } as Prisma.InputJsonValue,
-      },
-    });
 
-    await tx.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        paymentStatus: 'pending',
-        paymentMethod: 'credit_card',
-        paymentProvider: INTUIT_PROVIDER,
-        paymentExternalId: checkoutResult.externalPaymentId,
-        tipAmount,
-      },
+      await tx.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          paymentStatus: 'pending',
+          paymentMethod: 'credit_card',
+          paymentProvider: INTUIT_PROVIDER,
+          paymentExternalId: checkoutResult.externalPaymentId,
+          tipAmount,
+        },
+      });
     });
-  });
+  } catch (error) {
+    if (
+      mode === 'qbo' &&
+      error instanceof Error &&
+      error.message === 'This booking is already paid.'
+    ) {
+      try {
+        await voidQboInvoice(checkoutResult.externalPaymentId);
+      } catch (voidError) {
+        console.error(
+          `Failed to void replacement QuickBooks invoice ${checkoutResult.externalPaymentId}:`,
+          voidError
+        );
+      }
+    }
+    throw error;
+  }
 
   for (const stale of stalePending) {
     if (isMockExternalPaymentId(stale.externalPaymentId)) {
       continue;
     }
     try {
-      await voidQboInvoice(stale.externalPaymentId);
+      const voidResult = await voidQboInvoice(stale.externalPaymentId);
+      if (voidResult?.alreadyPaid) {
+        await notifyStaleInvoicePaid({
+          eventId: `checkout-void:${stale.externalPaymentId}`,
+          invoiceId: stale.externalPaymentId,
+          appointmentId: appointment.id,
+          paymentTransactionId: stale.id,
+          status: 'superseded',
+        });
+      }
     } catch (error) {
       console.error(`Failed to void superseded QuickBooks invoice ${stale.externalPaymentId}:`, error);
     }
@@ -455,7 +534,7 @@ const claimPaidConfirmation = async (params: {
   appointmentId: string;
   paymentExternalId: string;
   payload: Record<string, unknown>;
-}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled'> =>
+}): Promise<'confirmed' | 'already_paid' | 'booking_cancelled' | 'stale_invoice_paid'> =>
   prisma.$transaction(async (tx) => {
     const appointments = await tx.$queryRaw<Array<{ states: string; paymentStatus: string | null }>>`
       SELECT states, "paymentStatus"
@@ -480,6 +559,10 @@ const claimPaidConfirmation = async (params: {
       FOR UPDATE
     `;
     const payment = payments[0];
+    if (payment && (payment.status === 'superseded' || payment.status === 'ignored')) {
+      await markWebhookProcessed(tx, params.eventId);
+      return 'stale_invoice_paid';
+    }
     if (!payment || payment.status !== 'pending') {
       await markWebhookProcessed(tx, params.eventId);
       return 'already_paid';
@@ -553,6 +636,16 @@ const confirmPaidBooking = async (params: {
     payload: params.payload,
   });
 
+  if (claim === 'stale_invoice_paid') {
+    await notifyStaleInvoicePaid({
+      eventId,
+      invoiceId: params.paymentExternalId,
+      appointmentId: appointment.id,
+      paymentTransactionId: paymentTx.id,
+      status: paymentTx.status,
+    });
+    return { accepted: true, duplicate: false, eventId, status: claim };
+  }
   if (claim !== 'confirmed') {
     return { accepted: true, duplicate: false, eventId, status: claim };
   }
@@ -642,19 +735,12 @@ const confirmFromQboInvoiceId = async (
       },
       data: { processedAt: new Date() },
     });
-    await recordSecurityAuditEvent({
-      eventType: 'payment.stale_invoice_paid',
-      outcome: 'rejected',
-      severity: 'critical',
-      provider: INTUIT_PROVIDER,
+    await notifyStaleInvoicePaid({
+      eventId,
+      invoiceId,
       appointmentId: paymentTx.appointmentId,
       paymentTransactionId: paymentTx.id,
-      metadata: { eventId, invoiceId, status: paymentTx.status },
-    });
-    await sendSecurityAlert({
-      subject: 'Payment received on a replaced QuickBooks invoice',
-      summary: 'A superseded or ignored invoice was paid. The booking was not marked paid; refund or apply the payment in QuickBooks.',
-      details: { eventId, invoiceId, appointmentId: paymentTx.appointmentId },
+      status: paymentTx.status,
     });
     return { accepted: true, duplicate: false, eventId, status: 'stale_invoice_paid' };
   }
@@ -1117,6 +1203,15 @@ export const processIntuitWebhook = async (
         appointmentId: appointment.id,
         paymentTransactionId: paymentTx.id,
         metadata: { eventId, currentStatus: paymentTx.status },
+      });
+    }
+    if (liveClaim === 'stale_invoice_paid') {
+      await notifyStaleInvoicePaid({
+        eventId,
+        invoiceId: paymentId ?? appointment.paymentExternalId ?? paymentTx.externalPaymentId,
+        appointmentId: appointment.id,
+        paymentTransactionId: paymentTx.id,
+        status: paymentTx.status,
       });
     }
     return { accepted: true, duplicate: false, eventId, status: liveClaim };
